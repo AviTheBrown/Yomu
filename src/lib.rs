@@ -1,11 +1,15 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// A client for interacting with the MangaDex API.
 pub struct MangaDexClient {
+    /// The underlying HTTP client used for making requests.
     pub http_client: reqwest::Client,
+    /// The base URL for the MangaDex API.
     pub base_url: String,
 }
 impl MangaDexClient {
+    /// Creates a new `MangaDexClient` with default settings.
     pub fn new() -> Self {
         Self {
             http_client: reqwest::Client::builder()
@@ -15,17 +19,25 @@ impl MangaDexClient {
             base_url: "https://api.mangadex.org".into(),
         }
     }
+
+    /// Returns a `SearchClient` for searching manga.
     pub fn search_client<'mangaclient>(&'mangaclient self) -> SearchClient<'mangaclient> {
         return SearchClient { client: self };
     }
+
+    /// Returns a `ChapterClient` for fetching chapter data.
     pub fn chapter_client<'mangaclient>(&'mangaclient self) -> ChapterClient<'mangaclient> {
         return ChapterClient { client: self };
     }
 }
+/// A client for fetching chapter-related information.
 pub struct ChapterClient<'mangaclient> {
+    /// Reference to the parent `MangaDexClient`.
     pub client: &'mangaclient MangaDexClient,
 }
+
 impl<'mangaclient> ChapterClient<'mangaclient> {
+    /// Fetches the feed (chapters) for a specific manga ID.
     pub async fn fetch_chapter(
         &self,
         manga_id: String,
@@ -40,6 +52,7 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
         Ok(resp_json.data)
     }
 }
+/// Response from the MangaDex API for a chapter feed request.
 #[derive(Deserialize)]
 pub struct ChapterResponse {
     pub result: String,
@@ -49,6 +62,7 @@ pub struct ChapterResponse {
     pub offset: usize,
     pub total: usize,
 }
+/// Data representation of a single chapter.
 #[derive(Deserialize)]
 pub struct ChapterData {
     pub id: String,
@@ -56,6 +70,7 @@ pub struct ChapterData {
     pub type_: String,
     pub attributes: ChapterAttributes,
 }
+/// Attributes associated with a chapter.
 #[derive(Deserialize, Debug)]
 pub struct ChapterAttributes {
     pub volume: Option<String>,
@@ -67,10 +82,14 @@ pub struct ChapterAttributes {
     pub is_unavailable: bool,
     pub pages: Option<usize>,
 }
+/// A client for searching manga.
 pub struct SearchClient<'mangaclient> {
+    /// Reference to the parent `MangaDexClient`.
     pub client: &'mangaclient MangaDexClient,
 }
+
 impl<'mangaclient> SearchClient<'mangaclient> {
+    /// Searches for manga by title.
     pub async fn search(&self, title: String) -> Result<Vec<MangaData>, reqwest::Error> {
         let resp = self
             .client
@@ -83,6 +102,7 @@ impl<'mangaclient> SearchClient<'mangaclient> {
         Ok(resp_json.data)
     }
 }
+/// Response from the MangaDex API for a manga search request.
 #[derive(Deserialize)]
 pub struct SearchResponse {
     pub result: String,
@@ -92,6 +112,7 @@ pub struct SearchResponse {
     pub offset: usize,
     pub total: usize,
 }
+/// Data representation of a single manga entry.
 #[derive(Deserialize)]
 pub struct MangaData {
     pub id: String,
@@ -99,6 +120,7 @@ pub struct MangaData {
     pub type_: String,
     pub attributes: MangaAttributes,
 }
+/// Attributes associated with a manga.
 #[derive(Deserialize, Debug)]
 pub struct MangaAttributes {
     pub title: Option<HashMap<String, String>>,
