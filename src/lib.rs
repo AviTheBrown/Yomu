@@ -40,12 +40,14 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
     /// Fetches the feed (chapters) for a specific manga ID.
     pub async fn fetch_chapter(
         &self,
-        manga_id: String,
+        manga_id: &str,
+        language: Option<&str>
     ) -> Result<Vec<ChapterData>, reqwest::Error> {
         let resp = self
             .client
             .http_client
             .get(&format!("{}/manga/{}/feed", self.client.base_url, manga_id))
+            .query(&[("translatedLanguage", language)])
             .send()
             .await?;
         let resp_json = resp.json::<ChapterResponse>().await?;
@@ -158,7 +160,7 @@ async fn test_chapter() {
     let client = MangaDexClient::new();
     let chapter_client = client.chapter_client();
     let chpt_result = chapter_client
-        .fetch_chapter("a77742b1-befd-49a4-bff5-1ad4e6b0ef7b".into())
+        .fetch_chapter("a77742b1-befd-49a4-bff5-1ad4e6b0ef7b".into(), Some("en"))
         .await
         .unwrap();
     println!("Found {} chaptes", chpt_result.len());
