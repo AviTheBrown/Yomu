@@ -41,16 +41,20 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
     pub async fn fetch_chapter(
         &self,
         manga_id: &str,
-        language: Option<&str>
+        language: Option<&str>,
     ) -> Result<Vec<ChapterData>, reqwest::Error> {
         let resp = self
             .client
             .http_client
             .get(&format!("{}/manga/{}/feed", self.client.base_url, manga_id))
-            .query(&[("translatedLanguage", language)])
+            .query(&[
+                ("translatedLanguage[]", language.unwrap_or("en")),
+                ("order[chapter]", "asc"),
+            ])
             .send()
             .await?;
         let resp_json = resp.json::<ChapterResponse>().await?;
+        // TODO: Return custom error when resp_json.data is empty (no chapters for language)
         Ok(resp_json.data)
     }
 }
@@ -108,7 +112,7 @@ impl<'mangaclient> SearchClient<'mangaclient> {
 #[derive(Deserialize)]
 pub struct SearchResponse {
     pub result: String,
-    pub response: String,
+    pub response: Option<String>,
     pub data: Vec<MangaData>,
     pub limit: usize,
     pub offset: usize,
@@ -163,7 +167,7 @@ async fn test_chapter() {
         .fetch_chapter("a77742b1-befd-49a4-bff5-1ad4e6b0ef7b".into(), Some("en"))
         .await
         .unwrap();
-    println!("Found {} chaptes", chpt_result.len());
+    println!("Found {} chapters", chpt_result.len());
     for chapter in chpt_result.iter().take(10) {
         if let Some(ref chpt_num) = chapter.attributes.chapter {
             println!(
@@ -172,11 +176,4 @@ async fn test_chapter() {
             )
         }
     }
-    }
-
-
-
-
-
-
-
+}
