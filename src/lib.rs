@@ -29,6 +29,10 @@ impl MangaDexClient {
     pub fn chapter_client<'mangaclient>(&'mangaclient self) -> ChapterClient<'mangaclient> {
         return ChapterClient { client: self };
     }
+    /// Returns an `ImageClient` for fetching image data and URLs.
+    pub fn image_client<'mangaclient>(&'mangaclient self) -> ImageClient<'mangaclient> {
+        return ImageClient { client: self };
+    }
 }
 /// A client for fetching chapter-related information.
 pub struct ChapterClient<'mangaclient> {
@@ -61,32 +65,87 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
 /// Response from the MangaDex API for a chapter feed request.
 #[derive(Deserialize)]
 pub struct ChapterResponse {
+    /// Result status of the request.
     pub result: String,
+    /// Type of the response.
     pub response: String,
+    /// List of chapter data entries.
     pub data: Vec<ChapterData>,
+    /// Number of items returned in this page.
     pub limit: usize,
+    /// Number of items skipped.
     pub offset: usize,
+    /// Total number of items matching the query.
     pub total: usize,
 }
 /// Data representation of a single chapter.
 #[derive(Deserialize)]
 pub struct ChapterData {
+    /// Unique identifier for the chapter.
     pub id: String,
+    /// Resource type (usually "chapter").
     #[serde(rename = "type")]
     pub type_: String,
+    /// Attributes containing chapter information.
     pub attributes: ChapterAttributes,
 }
 /// Attributes associated with a chapter.
 #[derive(Deserialize, Debug)]
 pub struct ChapterAttributes {
+    /// Volume number (if applicable).
     pub volume: Option<String>,
+    /// Chapter number.
     pub chapter: Option<String>,
+    /// Title of the chapter.
     pub title: Option<String>,
+    /// The language the chapter was translated to.
     #[serde(rename = "translatedLanguage")]
     pub translated_language: Option<String>,
+    /// Whether the chapter is currently unavailable.
     #[serde(rename = "isUnavailable")]
     pub is_unavailable: bool,
+    /// Number of pages in the chapter.
     pub pages: Option<usize>,
+}
+/// A client for fetching image-related data from MangaDex @ Home servers.
+pub struct ImageClient<'mangaclient> {
+    /// Reference to the parent `MangaDexClient`.
+    pub client: &'mangaclient MangaDexClient,
+}
+impl<'mangaclient> ImageClient<'mangaclient> {
+    /// Fetches image filenames and server information for a specific chapter ID.
+    pub async fn fetch_image_data(
+        &self,
+        chapter_id: &str,
+    ) -> Result<ImageDataResponse, reqwest::Error> {
+        let fetch_url = format!("{}/at-home/server/{}", self.client.base_url, chapter_id);
+        let resp = self.client.http_client.get(fetch_url).send().await?;
+        let resp_json = resp.json::<ImageDataResponse>().await?;
+        Ok(resp_json)
+    }
+}
+
+/// Response from the MangaDex API for a chapter's image data.
+#[derive(Deserialize, Debug)]
+pub struct ImageDataResponse {
+    /// Result of the request (e.g., "ok").
+    pub result: String,
+    /// The base URL for fetching the images.
+    #[serde(rename = "baseUrl")]
+    pub base_url: String,
+    /// Image data and hash for the chapter.
+    pub chapter: ImageAttributes,
+}
+/// Image filenames and content hash for a chapter.
+#[derive(Deserialize, Debug)]
+pub struct ImageAttributes {
+    /// The content hash used in the image URL path.
+    pub hash: String,
+    /// Filenames for high-quality images.
+    pub data: Vec<String>,
+    /// Filenames for compressed (data saver) images.
+    #[serde(rename = "dataSaver")]
+    pub data_saver: Vec<String>,
 }
 /// A client for searching manga.
 pub struct SearchClient<'mangaclient> {
@@ -111,28 +170,42 @@ impl<'mangaclient> SearchClient<'mangaclient> {
 /// Response from the MangaDex API for a manga search request.
 #[derive(Deserialize)]
 pub struct SearchResponse {
+    /// Result status of the request.
     pub result: String,
+    /// Type of the response (if applicable).
     pub response: Option<String>,
+    /// List of manga data entries.
     pub data: Vec<MangaData>,
+    /// Number of items returned in this page.
     pub limit: usize,
+    /// Number of items skipped.
     pub offset: usize,
+    /// Total number of items matching the query.
     pub total: usize,
 }
 /// Data representation of a single manga entry.
 #[derive(Deserialize)]
 pub struct MangaData {
+    /// Unique identifier for the manga.
     pub id: String,
+    /// Resource type (usually "manga").
     #[serde(rename = "type")]
     pub type_: String,
+    /// Attributes containing manga information.
     pub attributes: MangaAttributes,
 }
 /// Attributes associated with a manga.
 #[derive(Deserialize, Debug)]
 pub struct MangaAttributes {
+    /// Map of titles in different languages.
     pub title: Option<HashMap<String, String>>,
+    /// Map of descriptions in different languages.
     pub description: Option<HashMap<String, String>>,
+    /// Targeted publication demographic.
     pub publication_demographic: Option<String>,
+    /// Serialization status of the manga.
     pub status: Option<String>,
+    /// Year of publication.
     pub year: Option<usize>,
 }
 
@@ -175,5 +248,23 @@ async fn test_chapter() {
                 chpt_num, chapter.attributes.translated_language
             )
         }
+    }
+}
+#[tokio::test]
+async fn fetch_image() {
+    let client = MangaDexClient::new();
+    let imgage_fetch_client = client.image_client();
+    let img_results = imgage_fetch_client
+        .fetch_image_data("73af4d8d-1532-4a72-b1b9-8f4e5cd295c9")
+        .await
+        .unwrap();
+    println!("there are {} pages", img_results.chapter.data.len());
+
+    for (i, filename) in img_results.chapter.data.iter().take(3).enumerate() {
+        let url = format!(
+            "{}/data/{}/{}",
+            img_results.base_url, img_results.chapter.hash, filename
+        );
+        println!("Page {}: {}", i + 1, url);
     }
 }
