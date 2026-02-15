@@ -58,8 +58,15 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
             .send()
             .await?;
         let resp_json = resp.json::<ChapterResponse>().await?;
-        // TODO: Return custom error when resp_json.data is empty (no chapters for language)
-        Ok(resp_json.data)
+        let filtered_json: Vec<ChapterData> = resp_json
+            .data
+            .into_iter()
+            .filter(|chapter| match chapter.attributes.pages {
+                Some(pages) => pages > 0,
+                None => false,
+            })
+            .collect();
+        Ok(filtered_json)
     }
 }
 /// Response from the MangaDex API for a chapter feed request.
@@ -244,12 +251,16 @@ async fn test_chapter() {
     for chapter in chpt_result.iter().take(10) {
         if let Some(ref chpt_num) = chapter.attributes.chapter {
             println!(
-                "Chapters: {} | Language: {:?}",
-                chpt_num, chapter.attributes.translated_language
+                "Chapter {} | Language: {:?} | Pages: {:?} | ID: {:?}",
+                chpt_num,
+                chapter.attributes.translated_language,
+                chapter.attributes.pages,
+                &chapter.id[..8]
             )
         }
     }
 }
+
 #[tokio::test]
 async fn fetch_image() {
     let client = MangaDexClient::new();
