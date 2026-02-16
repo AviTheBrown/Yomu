@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-exn = "0.3.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 reqwest = {version ="0.13.1", features = ["query", "json"]}
 serde = {version ="1.0.228", features = ["derive"]}
 serde_json = "1.0.149"
