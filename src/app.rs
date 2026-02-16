@@ -1,4 +1,3 @@
-use crate::error::Result;
 use crate::{ChapterData, MangaData};
 
 pub struct App {
