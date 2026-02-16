@@ -1,4 +1,5 @@
 use crate::chapter::ChapterClient;
+use crate::error::Result;
 use crate::image::ImageClient;
 use crate::search::SearchClient;
 
@@ -11,14 +12,13 @@ pub struct MangaDexClient {
 }
 impl MangaDexClient {
     /// Creates a new `MangaDexClient` with default settings.
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
             http_client: reqwest::Client::builder()
                 .user_agent("Yomu/0.1.0")
-                .build()
-                .unwrap(),
+                .build()?,
             base_url: "https://api.mangadex.org".into(),
-        }
+        })
     }
 
     /// Returns a `SearchClient` for searching manga.
