@@ -1,4 +1,5 @@
 use crate::client::MangaDexClient;
+use crate::error::Result;
 use serde::Deserialize;
 
 /// A client for fetching chapter-related information.
@@ -13,7 +14,7 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
         &self,
         manga_id: &str,
         language: Option<&str>,
-    ) -> Result<Vec<ChapterData>, reqwest::Error> {
+    ) -> Result<Vec<ChapterData>> {
         let resp: reqwest::Response = self
             .client
             .http_client
