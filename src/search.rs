@@ -1,4 +1,5 @@
 use crate::client::MangaDexClient;
+use crate::error::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -10,7 +11,7 @@ pub struct SearchClient<'mangaclient> {
 
 impl<'mangaclient> SearchClient<'mangaclient> {
     /// Searches for manga by title.
-    pub async fn search(&self, title: String) -> Result<Vec<MangaData>, reqwest::Error> {
+    pub async fn search(&self, title: String) -> Result<Vec<MangaData>> {
         let resp: reqwest::Response = self
             .client
             .http_client
