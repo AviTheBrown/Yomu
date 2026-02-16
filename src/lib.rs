@@ -1,11 +1,14 @@
 pub mod chapter;
 pub mod client;
+pub mod error;
 pub mod image;
 pub mod search;
-pub use chapter::ChapterClient;
+
+pub use chapter::{ChapterAttributes, ChapterClient, ChapterData};
 pub use client::MangaDexClient;
-pub use image::ImageClient;
-pub use search::SearchClient;
+pub use error::{Result, YomuError};
+pub use image::{ImageAttributes, ImageClient, ImageDataResponse};
+pub use search::{MangaAttributes, MangaData, SearchClient};
 
 #[cfg(test)]
 mod tests {
@@ -13,7 +16,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search() {
-        let client = MangaDexClient::new();
+        let client = MangaDexClient::new().unwrap();
         let search_client = client.search_client();
 
         let search_results = search_client
@@ -37,7 +40,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_chapter() {
-        let client = MangaDexClient::new();
+        let client = MangaDexClient::new().unwrap();
         let chapter_client = client.chapter_client();
         let chpt_result = chapter_client
             .fetch_chapter("a77742b1-befd-49a4-bff5-1ad4e6b0ef7b".into(), Some("en"))
@@ -59,7 +62,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_image() {
-        let client = MangaDexClient::new();
+        let client = MangaDexClient::new().unwrap();
         let imgage_fetch_client = client.image_client();
         let img_results = imgage_fetch_client
             .fetch_image_data("73af4d8d-1532-4a72-b1b9-8f4e5cd295c9")
