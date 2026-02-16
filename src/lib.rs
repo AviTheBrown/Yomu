@@ -1,3 +1,5 @@
+pub mod app;
+pub mod ascii;
 pub mod chapter;
 pub mod client;
 pub mod error;
