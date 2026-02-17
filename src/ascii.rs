@@ -4,6 +4,17 @@ use image::{imageops::FilterType, load_from_memory};
 ///
 /// This function resizes the image to the specified width and height,
 /// converts it to grayscale, and then maps brightness levels to ASCII characters.
+///
+/// # Example
+///
+/// ```rust
+/// use yomu::ascii::convert_to_ascii;
+///
+/// let bytes = include_bytes!("../tests/test_image.jpg");
+/// let ascii = convert_to_ascii(bytes, 80, 40)?;
+/// println!("{}", ascii);
+/// # Ok::<(), yomu::error::YomuError>(())
+/// ```
 pub fn convert_to_ascii(bytes: &[u8], width: u32, height: u32) -> Result<String> {
     let ascii_chars = " .:-=+*#@";
     let img = load_from_memory(bytes)?
