@@ -10,6 +10,19 @@ pub struct ImageClient<'mangaclient> {
 }
 impl<'mangaclient> ImageClient<'mangaclient> {
     /// Fetches image filenames and server information for a specific chapter ID.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use yomu::MangaDexClient;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = MangaDexClient::new()?;
+    /// let chapter_id = "73af4d8d-1532-4a72-b1b9-8f4e5cd295c9";
+    /// let image_data = client.image_client().fetch_image_data(chapter_id).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fetch_image_data(
         &self,
         chapter_id: &str,
@@ -20,6 +33,19 @@ impl<'mangaclient> ImageClient<'mangaclient> {
         Ok(resp_json)
     }
     /// Downloads an image from the given URL and returns the raw bytes.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use yomu::MangaDexClient;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = MangaDexClient::new()?;
+    /// let url = "https://example.com/image.jpg";
+    /// let bytes = client.image_client().download_image_bytes(url).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn download_image_bytes(&self, url: &str) -> Result<Vec<u8>> {
         let resp = self.client.http_client.get(url).send().await?;
         let bytes = resp.bytes().await?;
