@@ -101,6 +101,16 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Run
                 eprintln!("Error: {}", e);
             }
         }
+        KeyCode::Up => {
+            if app.selected_index > 0 {
+                app.selected_index -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.selected_index < app.search_result.len().saturating_sub(1) {
+                app.selected_index += 1;
+            }
+        }
         _ => {}
     }
 }
