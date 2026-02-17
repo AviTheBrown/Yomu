@@ -24,7 +24,8 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
                 ("order[chapter]", "asc"),
             ])
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let resp_json = resp.json::<ChapterResponse>().await?;
         let filtered_json: Vec<ChapterData> = resp_json
             .data
