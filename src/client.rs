@@ -4,6 +4,23 @@ use crate::image::ImageClient;
 use crate::search::SearchClient;
 
 /// A client for interacting with the MangaDex API.
+///
+/// This client serves as the entry point for searching manga,
+/// listing chapters, and fetching image data.
+///
+/// # Example
+///
+/// ```rust
+/// use yomu::MangaDexClient;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let client = MangaDexClient::new()?;
+///     let search_results = client.search_client().search("chainsaw man".to_string()).await?;
+///     println!("Found {} results", search_results.len());
+///     Ok(())
+/// }
+/// ```
 pub struct MangaDexClient {
     /// The underlying HTTP client used for making requests.
     pub http_client: reqwest::Client,
