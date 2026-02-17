@@ -3,6 +3,8 @@ name = "yomu"
 version = "0.1.0"
 edition = "2024"
 path = "src/main.rs"
+license = "MIT"
+authors = ["Avin Ben-Shemesh"]
 
 [dependencies]
 crossterm = "0.29.0"
