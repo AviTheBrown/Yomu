@@ -10,6 +10,19 @@ pub struct ChapterClient<'mangaclient> {
 
 impl<'mangaclient> ChapterClient<'mangaclient> {
     /// Fetches the feed (chapters) for a specific manga ID.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use yomu::MangaDexClient;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = MangaDexClient::new()?;
+    /// let manga_id = "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b";
+    /// let chapters = client.chapter_client().fetch_chapter(manga_id, Some("en")).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fetch_chapter(
         &self,
         manga_id: &str,
