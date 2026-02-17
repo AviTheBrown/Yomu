@@ -1,5 +1,9 @@
 use crate::error::Result;
 use image::{imageops::FilterType, load_from_memory};
+/// Converts raw image bytes into an ASCII art string.
+///
+/// This function resizes the image to the specified width and height,
+/// converts it to grayscale, and then maps brightness levels to ASCII characters.
 pub fn convert_to_ascii(bytes: &[u8], width: u32, height: u32) -> Result<String> {
     let ascii_chars = " .:-=+*#@";
     let img = load_from_memory(bytes)?
