@@ -1,3 +1,7 @@
+mod app;
+use app::App;
+use app::AppScreen;
+use crossterm::event::KeyEvent;
 use crossterm::{
     ExecutableCommand,
     event::KeyCode,
@@ -5,37 +9,28 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, RatatuiLogo},
+    widgets::{Block, Borders},
 };
 use std::io::stdout;
+use tokio::runtime::Runtime;
+use yomu::MangaDexClient;
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
+    let runtime = Runtime::new()?;
+    let mut app = app::App::new();
+    let client = MangaDexClient::new()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     loop {
         terminal.draw(|frame| {
-            let layout = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(3), Constraint::Min(0)])
-                .split(frame.area());
-            let search_area = layout[0];
-            let result_area = layout[1];
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new("Hello to YOMU")
-                    .block(Block::default().borders(Borders::ALL).title("Search")),
-                search_area,
-            );
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new("Hello to YOMU")
-                    .block(Block::default().borders(Borders::ALL).title("Result")),
-                result_area,
-            );
-            // TODO ui
+            render(&app, frame);
         })?;
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 if key.code == crossterm::event::KeyCode::Char('q') {
                     break;
+                } else {
+                    handle_event(&client, &mut app, &key, &runtime);
                 }
             }
         }
@@ -43,4 +38,69 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
     Ok(())
+}
+
+// will draw the UI based on AppState
+fn render(app: &App, frame: &mut Frame<'_>) {
+    match app.screen {
+        AppScreen::Search => draw_search(app, frame),
+        AppScreen::ChapterList => todo!(),
+        AppScreen::Reading => todo!(),
+    }
+}
+
+// reads keyboard input and updates appstate accordingly
+fn draw_search(app: &App, frame: &mut Frame<'_>) {
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .split(frame.area());
+    let serarch_area = layout[0];
+    let result_area = layout[1];
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(app.search_input.as_str())
+            .block(Block::default().borders(Borders::ALL).title_top("Search")),
+        serarch_area,
+    );
+    let items: Vec<ratatui::widgets::ListItem> = app
+        .search_result
+        .iter()
+        .map(|manga| {
+            let title = manga
+                .attributes
+                .title
+                .as_ref()
+                // TODO USE app.preferred_lang
+                .and_then(|t| t.get("en"))
+                .map(|t| t.as_str())
+                .unwrap_or("Unknown Title");
+            ratatui::widgets::ListItem::new(title)
+        })
+        .collect();
+    frame.render_widget(
+        ratatui::widgets::List::new(items)
+            .block(Block::default().borders(Borders::ALL).title_top("Result")),
+        result_area,
+    );
+}
+fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Runtime) {
+    match key.code {
+        KeyCode::Char(c) => {
+            app.search_input.push(c);
+        }
+        KeyCode::Backspace => {
+            app.search_input.pop();
+        }
+        KeyCode::Enter => {
+            let search_client = client.search_client();
+            let result =
+                rt.block_on(async { search_client.search(app.search_input.clone()).await });
+            if let Ok(result) = result {
+                app.search_result = result;
+            } else if let Err(e) = result {
+                eprintln!("Error: {}", e);
+            }
+        }
+        _ => {}
+    }
 }
