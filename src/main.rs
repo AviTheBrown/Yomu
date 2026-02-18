@@ -7,6 +7,7 @@ use crossterm::{
     event::KeyCode,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use ratatui::widgets::ListState;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders},
@@ -17,9 +18,11 @@ use yomu::MangaDexClient;
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
+
     let runtime = Runtime::new()?;
     let mut app = app::App::new();
     let client = MangaDexClient::new()?;
+
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     loop {
         terminal.draw(|frame| {
@@ -27,7 +30,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?;
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                if key.code == crossterm::event::KeyCode::Char('q') {
+                if key.code == crossterm::event::KeyCode::Esc {
                     break;
                 } else {
                     handle_event(&client, &mut app, &key, &runtime);
@@ -57,6 +60,7 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
         .split(frame.area());
     let serarch_area = layout[0];
     let result_area = layout[1];
+    let mut list_state = ListState::default();
     frame.render_widget(
         ratatui::widgets::Paragraph::new(app.search_input.as_str())
             .block(Block::default().borders(Borders::ALL).title_top("Search")),
@@ -77,10 +81,17 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
             ratatui::widgets::ListItem::new(title)
         })
         .collect();
-    frame.render_widget(
+    list_state.select(Some(app.selected_index));
+    frame.render_stateful_widget(
         ratatui::widgets::List::new(items)
-            .block(Block::default().borders(Borders::ALL).title_top("Result")),
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title_top("Result(s)"),
+            )
+            .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black)),
         result_area,
+        &mut list_state,
     );
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Runtime) {
@@ -101,14 +112,10 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Run
                 eprintln!("Error: {}", e);
             }
         }
-        KeyCode::Up => {
-            if app.selected_index > 0 {
-                app.selected_index -= 1;
-            }
-        }
+        KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
         KeyCode::Down => {
-            if app.selected_index < app.search_result.len().saturating_sub(1) {
-                app.selected_index += 1;
+            if app.selected_index + 1 < app.search_result.len() {
+                app.selected_index = app.selected_index + 1;
             }
         }
         _ => {}
