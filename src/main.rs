@@ -95,29 +95,38 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
     );
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Runtime) {
-    match key.code {
-        KeyCode::Char(c) => {
-            app.search_input.push(c);
-        }
-        KeyCode::Backspace => {
-            app.search_input.pop();
-        }
-        KeyCode::Enter => {
-            let search_client = client.search_client();
-            let result =
-                rt.block_on(async { search_client.search(app.search_input.clone()).await });
-            if let Ok(result) = result {
-                app.search_result = result;
-            } else if let Err(e) = result {
-                eprintln!("Error: {}", e);
+    match app.screen {
+        AppScreen::Search => match key.code {
+            KeyCode::Char(c) => {
+                app.search_input.push(c);
             }
-        }
-        KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
-        KeyCode::Down => {
-            if app.selected_index + 1 < app.search_result.len() {
-                app.selected_index = app.selected_index + 1;
+            KeyCode::Backspace => {
+                app.search_input.pop();
             }
-        }
-        _ => {}
+            KeyCode::Enter => {
+                if app.search_result.is_empty() {
+                    let search_client = client.search_client();
+                    let result =
+                        rt.block_on(async { search_client.search(app.search_input.clone()).await });
+                    if let Ok(result) = result {
+                        app.search_result = result;
+                    } else if let Err(e) = result {
+                        eprintln!("Error: {}", e);
+                    }
+                } else {
+                    app.selected_manga = Some(app.search_result[app.selected_index].clone());
+                    app.screen = AppScreen::ChapterList;
+                }
+            }
+            KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
+            KeyCode::Down => {
+                if app.selected_index + 1 < app.search_result.len() {
+                    app.selected_index = app.selected_index + 1;
+                }
+            }
+            _ => {}
+        },
+        _ => {} // AppScreen::ChapterList => match key.code todo!()
+                // AppScreen::Reading => match key.code todo!()
     }
 }

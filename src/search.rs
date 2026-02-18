@@ -65,7 +65,7 @@ pub struct SearchResponse {
     pub total: usize,
 }
 /// Data representation of a single manga entry.
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct MangaData {
     /// Unique identifier for the manga.
     pub id: String,
@@ -76,7 +76,7 @@ pub struct MangaData {
     pub attributes: MangaAttributes,
 }
 /// Attributes associated with a manga.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MangaAttributes {
     /// Map of titles in different languages.
     pub title: Option<HashMap<String, String>>,
