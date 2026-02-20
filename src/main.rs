@@ -47,7 +47,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn render(app: &App, frame: &mut Frame<'_>) {
     match app.screen {
         AppScreen::Search => draw_search(app, frame),
-        AppScreen::ChapterList => todo!(),
+        AppScreen::ChapterList => draw_chapter_list(app, frame),
         AppScreen::Reading => todo!(),
     }
 }
@@ -94,6 +94,47 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
+fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .split(frame.area());
+    let serarch_area = layout[0];
+    let result_area = layout[1];
+    let mut list_state = ListState::default();
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(app.search_input.as_str())
+            .block(Block::default().borders(Borders::ALL).title_top("Search")),
+        serarch_area,
+    );
+    let items: Vec<ratatui::widgets::ListItem> = app
+        .search_result
+        .iter()
+        .map(|manga| {
+            let title = manga
+                .attributes
+                .title
+                .as_ref()
+                // TODO USE app.preferred_lang
+                .and_then(|t| t.get("en"))
+                .map(|t| t.as_str())
+                .unwrap_or("Unknown Title");
+            ratatui::widgets::ListItem::new(title)
+        })
+        .collect();
+    list_state.select(Some(app.selected_index));
+    frame.render_stateful_widget(
+        ratatui::widgets::List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title_top("Chapters(s)"),
+            )
+            .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black)),
+        result_area,
+        &mut list_state,
+    );
+}
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Runtime) {
     match app.screen {
         AppScreen::Search => match key.code {
@@ -104,16 +145,22 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Run
                 app.search_input.pop();
             }
             KeyCode::Enter => {
-                if app.search_result.is_empty() {
+                if !app.search_input.is_empty() && app.search_input != app.last_search_query {
                     let search_client = client.search_client();
                     let result =
                         rt.block_on(async { search_client.search(app.search_input.clone()).await });
                     if let Ok(result) = result {
                         app.search_result = result;
+                        app.last_search_query = app.search_input.clone();
                     } else if let Err(e) = result {
                         eprintln!("Error: {}", e);
+                    } else if !app.search_result.is_empty()
+                        && app.search_input == app.last_search_query
+                    {
+                        // TODO add better handling
+                        eprintln!("Error")
                     }
-                } else {
+                } else if !app.search_result.is_empty() {
                     app.selected_manga = Some(app.search_result[app.selected_index].clone());
                     app.screen = AppScreen::ChapterList;
                 }

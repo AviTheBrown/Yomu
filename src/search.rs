@@ -76,7 +76,7 @@ pub struct MangaData {
     pub attributes: MangaAttributes,
 }
 /// Attributes associated with a manga.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct MangaAttributes {
     /// Map of titles in different languages.
     pub title: Option<HashMap<String, String>>,

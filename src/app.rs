@@ -9,6 +9,7 @@ pub struct App {
     pub search_input: String,
     /// The results of the most recent manga search.
     pub search_result: Vec<MangaData>,
+    pub last_search_query: String,
     /// The manga currently selected by the user.
     pub selected_manga: Option<MangaData>,
     /// The user's preferred language for manga content.
@@ -39,6 +40,7 @@ impl App {
             screen: AppScreen::Search,
             search_input: String::new(),
             search_result: Vec::new(),
+            last_search_query: String::new(),
             peferred_lang: String::new(),
             selected_manga: None,
             chapters: Vec::new(),
