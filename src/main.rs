@@ -47,7 +47,17 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn render(app: &App, frame: &mut Frame<'_>) {
     match app.screen {
         AppScreen::Search => draw_search(app, frame),
-        AppScreen::ChapterList => draw_chapter_list(app, frame),
+        AppScreen::ChapterList => {
+            let Some(manga_title) = app
+                .selected_manga
+                .as_ref()
+                .map(|manga| manga.attributes.title.as_ref().and_then(|m| m.get("title")))
+                .flatten()
+            else {
+                return;
+            };
+            draw_chapter_list(app, manga_title, frame)
+        }
         AppScreen::Reading => todo!(),
     }
 }
@@ -94,24 +104,24 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
-fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
+fn draw_chapter_list(app: &App, manga_name: &str, frame: &mut Frame<'_>) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(frame.area());
-    let serarch_area = layout[0];
-    let result_area = layout[1];
+    let manga_area = layout[0];
+    let chaptere_list_area = layout[1];
     let mut list_state = ListState::default();
     frame.render_widget(
-        ratatui::widgets::Paragraph::new(app.search_input.as_str())
-            .block(Block::default().borders(Borders::ALL).title_top("Search")),
-        serarch_area,
+        ratatui::widgets::Paragraph::new(manga_name)
+            .block(Block::default().borders(Borders::ALL).title_top("Manga")),
+        manga_area,
     );
     let items: Vec<ratatui::widgets::ListItem> = app
-        .search_result
+        .selected_manga
         .iter()
-        .map(|manga| {
-            let title = manga
+        .map(|data| {
+            let chapter = data
                 .attributes
                 .title
                 .as_ref()
@@ -119,9 +129,10 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
                 .and_then(|t| t.get("en"))
                 .map(|t| t.as_str())
                 .unwrap_or("Unknown Title");
-            ratatui::widgets::ListItem::new(title)
+            ratatui::widgets::ListItem::new(chapter)
         })
         .collect();
+
     list_state.select(Some(app.selected_index));
     frame.render_stateful_widget(
         ratatui::widgets::List::new(items)
@@ -131,11 +142,11 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
                     .title_top("Chapters(s)"),
             )
             .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black)),
-        result_area,
+        chaptere_list_area,
         &mut list_state,
     );
 }
-fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Runtime) {
+fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
     match app.screen {
         AppScreen::Search => match key.code {
             KeyCode::Char(c) => {
@@ -147,8 +158,8 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Run
             KeyCode::Enter => {
                 if !app.search_input.is_empty() && app.search_input != app.last_search_query {
                     let search_client = client.search_client();
-                    let result =
-                        rt.block_on(async { search_client.search(app.search_input.clone()).await });
+                    let result = runtime
+                        .block_on(async { search_client.search(app.search_input.clone()).await });
                     if let Ok(result) = result {
                         app.search_result = result;
                         app.last_search_query = app.search_input.clone();
@@ -162,6 +173,24 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, rt: &Run
                     }
                 } else if !app.search_result.is_empty() {
                     app.selected_manga = Some(app.search_result[app.selected_index].clone());
+                    let chapter_client = client.chapter_client();
+
+                    let manga_id = app.selected_manga.as_ref().map(|manga| &manga.id);
+                    let Some(manga_id_str) = manga_id else {
+                        eprintln!("Value of id was none. exiting..");
+                        return;
+                    };
+                    let chapter_result = runtime.block_on(async {
+                        let chapter_data_result = chapter_client
+                            .fetch_chapter(manga_id_str.as_str(), Some("en"))
+                            .await;
+                        chapter_data_result
+                    });
+                    let Ok(chapter_data) = chapter_result else {
+                        eprint!("There was an error fetching the chapter data");
+                        return;
+                    };
+                    app.chapters = chapter_data;
                     app.screen = AppScreen::ChapterList;
                 }
             }
