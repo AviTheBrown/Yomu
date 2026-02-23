@@ -115,16 +115,15 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     let chapter_list_area = layout[1];
 
     let mut list_state = ListState::default();
-    let Some(manga_name) = app
+    let manga_name = app
         .selected_manga
         .as_ref()
-        .and_then(|m| m.attributes.title.as_ref().and_then(|m| m.get("ja-ro")))
-    else {
-        eprintln!("There was an error tryinh to capture the manga name");
-        return;
-    };
+        .and_then(|m| m.attributes.title.as_ref())
+        .and_then(|t| t.get("ja-ro").or(t.get("en")))
+        .map(|s| s.as_str())
+        .unwrap_or("Unknown Manga");
     frame.render_widget(
-        ratatui::widgets::Paragraph::new(manga_name.as_str())
+        ratatui::widgets::Paragraph::new(manga_name)
             .block(Block::default().borders(Borders::ALL).title_top("Manga")),
         manga_area,
     );
@@ -132,12 +131,15 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
         .chapters
         .iter()
         .map(|chapter| {
-            let chapter_name = *chapter.attributes.title.as_ref();
-            let chapter_volume = chapter.attributes.volume.as_ref();
-            let chapter_pages = chapter.attributes.pages.as_ref();
-            ratatui::widgets::ListItem::new(chapter_name);
-            ratatui::widgets::ListItem::new(chapter_volume);
-            ratatui::widgets::ListItem::new(chapter_pages);
+            let name = chapter.attributes.title.as_deref().unwrap_or("No Title");
+            let vol = chapter.attributes.volume.as_deref().unwrap_or("N/A");
+            let pages = chapter
+                .attributes
+                .pages
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "0".to_string());
+
+            ratatui::widgets::ListItem::new(format!("Vol. {} - {} ({} pages)", vol, name, pages))
         })
         .collect();
 
