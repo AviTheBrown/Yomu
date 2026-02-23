@@ -210,6 +210,7 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     };
                     app.chapters = chapter_data;
                     app.screen = AppScreen::ChapterList;
+                    app.selected_index = 0;
                 }
             }
             KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
@@ -226,9 +227,18 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             }
             KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
             KeyCode::Down => {
-                if app.selected_index + 1 < app.search_result.len() {
+                if app.selected_index + 1 < app.chapters.len() {
                     app.selected_index = app.selected_index + 1;
                 }
+            }
+            KeyCode::Enter => {
+                let image_client = client.image_client();
+                let Some(manga_id) = app.selected_manga.as_ref().map(|m| m.id.as_ref()) else {
+                    eprintln!("Error retreiving manga id");
+                    return;
+                };
+                let result =
+                    runtime.block_on(async { image_client.fetch_image_data(manga_id).await });
             }
             _ => {}
         },
