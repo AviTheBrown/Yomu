@@ -119,7 +119,7 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
         .selected_manga
         .as_ref()
         .and_then(|m| m.attributes.title.as_ref())
-        .and_then(|t| t.get("ja-ro").or(t.get("en")))
+        .and_then(|t| t.get("en"))
         .map(|s| s.as_str())
         .unwrap_or("Unknown Manga");
     frame.render_widget(
@@ -131,7 +131,12 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
         .chapters
         .iter()
         .map(|chapter| {
-            let name = chapter.attributes.title.as_deref().unwrap_or("No Title");
+            let chpt_name = chapter.attributes.title.as_deref().unwrap_or("No Title");
+            let chpt = chapter
+                .attributes
+                .chapter
+                .as_deref()
+                .unwrap_or("No Chapter Info");
             let vol = chapter.attributes.volume.as_deref().unwrap_or("N/A");
             let pages = chapter
                 .attributes
@@ -139,7 +144,10 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
                 .map(|p| p.to_string())
                 .unwrap_or_else(|| "0".to_string());
 
-            ratatui::widgets::ListItem::new(format!("Vol. {} - {} ({} pages)", vol, name, pages))
+            ratatui::widgets::ListItem::new(format!(
+                " Chapter {} {}, (Vol.{},{} pages)",
+                chpt, chpt_name, vol, pages
+            ))
         })
         .collect();
 
@@ -212,7 +220,12 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             }
             _ => {}
         },
-        AppScreen::ChapterList => {} // AppScreen::ChapterList => match key.code todo!()
+        AppScreen::ChapterList => match key.code {
+            KeyCode::Char('b') => {
+                app.screen = AppScreen::Search;
+            }
+            _ => {}
+        },
         // AppScreen::Reading => match key.code todo!()
         _ => {}
     }
