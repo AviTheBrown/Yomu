@@ -15,6 +15,7 @@ use ratatui::{
 use std::io::stdout;
 use tokio::runtime::Runtime;
 use yomu::MangaDexClient;
+
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
@@ -48,15 +49,15 @@ fn render(app: &App, frame: &mut Frame<'_>) {
     match app.screen {
         AppScreen::Search => draw_search(app, frame),
         AppScreen::ChapterList => {
-            let Some(manga_title) = app
-                .selected_manga
-                .as_ref()
-                .map(|manga| manga.attributes.title.as_ref().and_then(|m| m.get("title")))
-                .flatten()
-            else {
-                return;
-            };
-            draw_chapter_list(app, manga_title, frame)
+            // let Some(manga_title) = app
+            //     .selected_manga
+            //     .as_ref()
+            //     .map(|manga| manga.attributes.title.as_ref().and_then(|m| m.get("ja-ro")))
+            //     .flatten()
+            // else {
+            //     return;
+            // };
+            draw_chapter_list(app, frame)
         }
         AppScreen::Reading => todo!(),
     }
@@ -104,32 +105,39 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
-fn draw_chapter_list(app: &App, manga_name: &str, frame: &mut Frame<'_>) {
+fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(frame.area());
+
     let manga_area = layout[0];
-    let chaptere_list_area = layout[1];
+    let chapter_list_area = layout[1];
+
     let mut list_state = ListState::default();
+    let Some(manga_name) = app
+        .selected_manga
+        .as_ref()
+        .and_then(|m| m.attributes.title.as_ref().and_then(|m| m.get("ja-ro")))
+    else {
+        eprintln!("There was an error tryinh to capture the manga name");
+        return;
+    };
     frame.render_widget(
-        ratatui::widgets::Paragraph::new(manga_name)
+        ratatui::widgets::Paragraph::new(manga_name.as_str())
             .block(Block::default().borders(Borders::ALL).title_top("Manga")),
         manga_area,
     );
     let items: Vec<ratatui::widgets::ListItem> = app
-        .selected_manga
+        .chapters
         .iter()
-        .map(|data| {
-            let chapter = data
-                .attributes
-                .title
-                .as_ref()
-                // TODO USE app.preferred_lang
-                .and_then(|t| t.get("en"))
-                .map(|t| t.as_str())
-                .unwrap_or("Unknown Title");
-            ratatui::widgets::ListItem::new(chapter)
+        .map(|chapter| {
+            let chapter_name = *chapter.attributes.title.as_ref();
+            let chapter_volume = chapter.attributes.volume.as_ref();
+            let chapter_pages = chapter.attributes.pages.as_ref();
+            ratatui::widgets::ListItem::new(chapter_name);
+            ratatui::widgets::ListItem::new(chapter_volume);
+            ratatui::widgets::ListItem::new(chapter_pages);
         })
         .collect();
 
@@ -142,7 +150,7 @@ fn draw_chapter_list(app: &App, manga_name: &str, frame: &mut Frame<'_>) {
                     .title_top("Chapters(s)"),
             )
             .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black)),
-        chaptere_list_area,
+        chapter_list_area,
         &mut list_state,
     );
 }
@@ -202,7 +210,8 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             }
             _ => {}
         },
-        _ => {} // AppScreen::ChapterList => match key.code todo!()
-                // AppScreen::Reading => match key.code todo!()
+        AppScreen::ChapterList => {} // AppScreen::ChapterList => match key.code todo!()
+        // AppScreen::Reading => match key.code todo!()
+        _ => {}
     }
 }
