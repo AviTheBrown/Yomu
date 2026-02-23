@@ -224,6 +224,12 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             KeyCode::Char('b') => {
                 app.screen = AppScreen::Search;
             }
+            KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
+            KeyCode::Down => {
+                if app.selected_index + 1 < app.search_result.len() {
+                    app.selected_index = app.selected_index + 1;
+                }
+            }
             _ => {}
         },
         // AppScreen::Reading => match key.code todo!()
