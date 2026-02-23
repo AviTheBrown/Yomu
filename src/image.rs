@@ -23,10 +23,7 @@ impl<'mangaclient> ImageClient<'mangaclient> {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn fetch_image_data(
-        &self,
-        chapter_id: &str,
-    ) -> Result<ImageDataResponse> {
+    pub async fn fetch_image_data(&self, chapter_id: &str) -> Result<ImageDataResponse> {
         let fetch_url = format!("{}/at-home/server/{}", self.client.base_url, chapter_id);
         let resp: reqwest::Response = self.client.http_client.get(fetch_url).send().await?;
         let resp_json = resp.json::<ImageDataResponse>().await?;
