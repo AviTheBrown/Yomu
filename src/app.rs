@@ -1,5 +1,4 @@
-use yomu::ChapterData;
-use yomu::MangaData;
+use yomu::{ChapterData, ImageDataResponse, MangaData};
 
 /// The main application state.
 pub struct App {
@@ -18,6 +17,8 @@ pub struct App {
     pub chapters: Vec<ChapterData>,
     /// The index of the currently selected item in a list (search results or chapters).
     pub selected_index: usize,
+    // The current ImageDataResponse list
+    pub image_data: Option<ImageDataResponse>,
     /// The current page index when reading a chapter.
     pub current_page: usize,
     /// The ASCII art representation of the current page.
@@ -44,6 +45,7 @@ impl App {
             peferred_lang: String::new(),
             selected_manga: None,
             chapters: Vec::new(),
+            image_data: None,
             selected_index: 0,
             current_page: 0,
             ascii_page: None,
