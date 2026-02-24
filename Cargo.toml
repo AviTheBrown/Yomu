@@ -8,10 +8,10 @@ authors = ["Avin Ben-Shemesh"]
 
 [dependencies]
 crossterm = "0.29.0"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", features = ["png", "jpeg", "webp"] }
 ratatui = "0.30.0"
 reqwest = {version ="0.13.1", features = ["query", "json"]}
 serde = {version ="1.0.228", features = ["derive"]}
 serde_json = "1.0.149"
 tokio = {version = "1", features = ["rt", "macros", "rt-multi-thread", "net"]}
-ratatui-image = "1.0.1"
+ratatui-image = "1.0.5"

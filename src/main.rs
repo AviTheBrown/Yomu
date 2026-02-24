@@ -26,6 +26,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = MangaDexClient::new()?;
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    terminal.clear()?;
+    
+    // Initialize picker after terminal is in raw mode and alternate screen
+    app.picker = ratatui_image::picker::Picker::from_termios().ok();
+
     loop {
         terminal.draw(|frame| {
             render(&app, frame);
@@ -182,21 +187,35 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
     };
 
     // Right Panel (Page N)
+    frame.render_widget(Block::default().bg(Color::Reset), right);
     if let Some(img) = &app.page_right {
         if let Ok(p) = picker.new_protocol(img.clone(), right, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
-            frame.render_widget(ratatui_image::Image::new(&*p), right);
+            let image_widget = ratatui_image::Image::new(&*p);
+            let actual_area = p.rect();
+            // Center the image within its pane
+            let x_offset = (right.width.saturating_sub(actual_area.width)) / 2;
+            let y_offset = (right.height.saturating_sub(actual_area.height)) / 2;
+            let centered_area = Rect::new(right.x + x_offset, right.y + y_offset, actual_area.width, actual_area.height);
+            frame.render_widget(image_widget, centered_area);
         }
     } else {
-        frame.render_widget(Paragraph::new("...").centered(), right);
+        frame.render_widget(Paragraph::new("Loading...").centered(), right);
     }
 
     // Left Panel (Page N+1)
+    frame.render_widget(Block::default().bg(Color::Reset), left);
     if let Some(img) = &app.page_left {
         if let Ok(p) = picker.new_protocol(img.clone(), left, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
-            frame.render_widget(ratatui_image::Image::new(&*p), left);
+            let image_widget = ratatui_image::Image::new(&*p);
+            let actual_area = p.rect();
+            // Center the image within its pane
+            let x_offset = (left.width.saturating_sub(actual_area.width)) / 2;
+            let y_offset = (left.height.saturating_sub(actual_area.height)) / 2;
+            let centered_area = Rect::new(left.x + x_offset, left.y + y_offset, actual_area.width, actual_area.height);
+            frame.render_widget(image_widget, centered_area);
         }
     } else {
-        frame.render_widget(Paragraph::new("...").centered(), left);
+        frame.render_widget(Paragraph::new("Loading...").centered(), left);
     }
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
@@ -289,8 +308,6 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     eprint!("there are not pages to display");
                     return;
                 }
-                let (_term_width, _term_height) = crossterm::terminal::size().unwrap_or((80, 24));
-                
                 app.current_page = 0;
                 
                 // Fetch Page 1 (Right Panel)

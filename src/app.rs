@@ -54,7 +54,7 @@ impl App {
             current_page: 0,
             page_left: None,
             page_right: None,
-            picker: ratatui_image::picker::Picker::from_termios().ok(),
+            picker: None,
         }
     }
 }
