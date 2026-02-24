@@ -7,40 +7,116 @@ use crossterm::{
     event::KeyCode,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use ratatui::widgets::Paragraph;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders},
 };
+use ratatui_image::protocol::Protocol;
 use std::io::stdout;
-use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 use yomu::MangaDexClient;
+use yomu::image::ImageDataResponse;
 
-pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Message from a background image-download task.
+type PageMsg = (usize, image::DynamicImage);
+/// Message from a background protocol-build task: (page_idx, is_left_panel, protocol).
+type ProtoMsg = (usize, bool, Protocol);
+
+#[tokio::main]
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
 
-    let runtime = Runtime::new()?;
     let mut app = app::App::new();
     let client = MangaDexClient::new()?;
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     terminal.clear()?;
-    
-    // Initialize picker after terminal is in raw mode and alternate screen
+
     app.picker = ratatui_image::picker::Picker::from_query_stdio().ok();
 
+    let (page_tx, mut page_rx) = mpsc::channel::<PageMsg>(64);
+    let (proto_tx, mut proto_rx) = mpsc::channel::<ProtoMsg>(32);
+
     loop {
+        // 1. Drain newly downloaded images
+        while let Ok((idx, img)) = page_rx.try_recv() {
+            if idx == app.current_page {
+                app.page_right = Some(img.clone());
+            } else if idx == app.current_page + 1 {
+                app.page_left = Some(img.clone());
+            }
+            // Pre-build the protocol for this page in the background now that the image is ready.
+            // Determines which panel(s) this page will appear on.
+            if idx == app.current_page && app.last_right_area != Rect::default() {
+                spawn_proto(
+                    app.picker.clone(),
+                    img.clone(),
+                    app.last_right_area,
+                    idx,
+                    false,
+                    proto_tx.clone(),
+                );
+            }
+            if idx == app.current_page + 1 && app.last_left_area != Rect::default() {
+                spawn_proto(
+                    app.picker.clone(),
+                    img.clone(),
+                    app.last_left_area,
+                    idx,
+                    true,
+                    proto_tx.clone(),
+                );
+            }
+            // Also pre-build for when this prefetched page becomes the current spread
+            // (current+2 will be right, current+3 will be left on next navigation)
+            if idx == app.current_page + 2 && app.last_right_area != Rect::default() {
+                spawn_proto(
+                    app.picker.clone(),
+                    img.clone(),
+                    app.last_right_area,
+                    idx,
+                    false,
+                    proto_tx.clone(),
+                );
+            }
+            if idx == app.current_page + 3 && app.last_left_area != Rect::default() {
+                spawn_proto(
+                    app.picker.clone(),
+                    img.clone(),
+                    app.last_left_area,
+                    idx,
+                    true,
+                    proto_tx.clone(),
+                );
+            }
+            app.page_cache.insert(idx, img);
+            app.fetched.insert(idx); // mark complete so re-entering load_spread never re-fetches
+        }
+
+        // 2. Drain pre-built protocols into the cache
+        while let Ok((idx, is_left, proto)) = proto_rx.try_recv() {
+            let area = if is_left {
+                app.last_left_area
+            } else {
+                app.last_right_area
+            };
+            app.proto_cache.insert((idx, is_left), (area, proto));
+        }
+
         terminal.draw(|frame| {
-            render(&app, frame);
+            render(&mut app, frame);
         })?;
-        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
+
+        if crossterm::event::poll(std::time::Duration::from_millis(16))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 if key.code == crossterm::event::KeyCode::Esc {
                     break;
                 } else {
-                    handle_event(&client, &mut app, &key, &runtime);
+                    handle_event(&client, &mut app, &key, &page_tx, &proto_tx).await;
                 }
             }
         }
@@ -50,8 +126,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// will draw the UI based on AppState
-fn render(app: &App, frame: &mut Frame<'_>) {
+/// Dispatches the render call to the appropriate screen drawing function.
+fn render(app: &mut App, frame: &mut Frame<'_>) {
     match app.screen {
         AppScreen::Search => draw_search(app, frame),
         AppScreen::ChapterList => draw_chapter_list(app, frame),
@@ -59,19 +135,19 @@ fn render(app: &App, frame: &mut Frame<'_>) {
     }
 }
 
-// reads keyboard input and updates appstate accordingly
+/// Renders the manga search and results screen.
 fn draw_search(app: &App, frame: &mut Frame<'_>) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(frame.area());
-    let serarch_area = layout[0];
+    let search_area = layout[0];
     let result_area = layout[1];
     let mut list_state = ListState::default();
     frame.render_widget(
         ratatui::widgets::Paragraph::new(app.search_input.as_str())
             .block(Block::default().borders(Borders::ALL).title_top("Search")),
-        serarch_area,
+        search_area,
     );
     let items: Vec<ratatui::widgets::ListItem> = app
         .search_result
@@ -81,7 +157,6 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
                 .attributes
                 .title
                 .as_ref()
-                // TODO USE app.preferred_lang
                 .and_then(|t| t.get("en"))
                 .map(|t| t.as_str())
                 .unwrap_or("Unknown Title");
@@ -101,6 +176,8 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
+
+/// Renders the list of chapters for a selected manga.
 fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -160,15 +237,29 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
-fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
+
+/// Renders the high-resolution two-page reading spread.
+///
+/// This function records the current layout areas so background tasks can
+/// accurately pre-build protocols for upcoming pages.
+fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
     let [header, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
 
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
 
+    // Record the current panel areas so background tasks can pre-build protocols at the right size.
+    app.last_right_area = right;
+    app.last_left_area = left;
+
     let page_info = if let Some(img_data) = &app.image_data {
-        format!("Pages {} & {} / {} - Press 'b' to go back", app.current_page + 1, app.current_page + 2, img_data.chapter.data.len())
+        format!(
+            "Pages {} & {} / {} - Press 'b' to go back",
+            app.current_page + 1,
+            app.current_page + 2,
+            img_data.chapter.data.len()
+        )
     } else {
         "Reading Mode - Press 'b' to go back".to_string()
     };
@@ -177,48 +268,87 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
         .centered()
         .render(header, frame.buffer_mut());
 
-    let mut fallback_picker;
-    let picker = if let Some(p) = app.picker.as_ref() {
-        fallback_picker = p.clone();
-        &mut fallback_picker
-    } else {
-        fallback_picker = ratatui_image::picker::Picker::halfblocks();
-        &mut fallback_picker
-    };
+    let current = app.current_page;
+    let next = current + 1;
 
-    // Right Panel (Page N) - Aligned to the LEFT of this panel (the spine)
-    frame.render_widget(Block::default().bg(Color::Reset), right);
-    if let Some(img) = &app.page_right {
-        if let Ok(p) = picker.new_protocol(img.clone(), right, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
-            let image_widget = ratatui_image::Image::new(&p);
-            let actual_area = p.area();
-            // Align to left of panel (spine)
-            let x_offset = 0; 
-            let y_offset = (right.height.saturating_sub(actual_area.height)) / 2;
-            let centered_area = Rect::new(right.x + x_offset, right.y + y_offset, actual_area.width, actual_area.height);
-            frame.render_widget(image_widget, centered_area);
+    render_panel(app, frame, right, current, false);
+    render_panel(app, frame, left, next, true);
+}
+
+/// Renders one panel. Looks up the pre-built protocol from the cache; if stale or missing,
+/// builds it synchronously as a fallback (rare after first render of each page).
+fn render_panel(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    area: Rect,
+    page_idx: usize,
+    is_left: bool,
+) {
+    frame.render_widget(Block::default().bg(Color::Reset), area);
+
+    // Check if the cached protocol is still valid for this area size.
+    let cache_valid = app
+        .proto_cache
+        .get(&(page_idx, is_left))
+        .map_or(false, |(cached_area, _)| {
+            cached_area.width == area.width && cached_area.height == area.height
+        });
+
+    if !cache_valid {
+        // Fallback: build synchronously. This path is only hit on first display of a page
+        // (before the background task finishes) or after a terminal resize.
+        let img = if is_left {
+            app.page_left.clone()
+        } else {
+            app.page_right.clone()
+        };
+        if let Some(img) = img {
+            let picker = app
+                .picker
+                .clone()
+                .unwrap_or_else(ratatui_image::picker::Picker::halfblocks);
+            if let Ok(p) = picker.new_protocol(
+                img,
+                area,
+                ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Triangle)),
+            ) {
+                app.proto_cache.insert((page_idx, is_left), (area, p));
+            }
         }
-    } else {
-        frame.render_widget(Paragraph::new("Loading...").centered(), right);
     }
 
-    // Left Panel (Page N+1) - Aligned to the RIGHT of this panel (the spine)
-    frame.render_widget(Block::default().bg(Color::Reset), left);
-    if let Some(img) = &app.page_left {
-        if let Ok(p) = picker.new_protocol(img.clone(), left, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
-            let image_widget = ratatui_image::Image::new(&p);
-            let actual_area = p.area();
-            // Align to right of panel (spine)
-            let x_offset = left.width.saturating_sub(actual_area.width);
-            let y_offset = (left.height.saturating_sub(actual_area.height)) / 2;
-            let centered_area = Rect::new(left.x + x_offset, left.y + y_offset, actual_area.width, actual_area.height);
-            frame.render_widget(image_widget, centered_area);
-        }
+    if let Some((_, p)) = app.proto_cache.get(&(page_idx, is_left)) {
+        let image_widget = ratatui_image::Image::new(p);
+        let actual_area = p.area();
+        let x_offset = if is_left {
+            area.width.saturating_sub(actual_area.width) // spine-align right
+        } else {
+            0 // spine-align left
+        };
+        let y_offset = (area.height.saturating_sub(actual_area.height)) / 2;
+        let render_area = Rect::new(
+            area.x + x_offset,
+            area.y + y_offset,
+            actual_area.width,
+            actual_area.height,
+        );
+        frame.render_widget(image_widget, render_area);
     } else {
-        frame.render_widget(Paragraph::new("Loading...").centered(), left);
+        frame.render_widget(Paragraph::new("Loading...").centered(), area);
     }
 }
-fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
+
+/// Handles keyboard events and updates the application state.
+///
+/// Most transitions involve asynchronous operations (search, fetch) which are
+/// managed within this function.
+async fn handle_event(
+    client: &MangaDexClient,
+    app: &mut App,
+    key: &KeyEvent,
+    page_tx: &mpsc::Sender<PageMsg>,
+    proto_tx: &mpsc::Sender<ProtoMsg>,
+) {
     match app.screen {
         AppScreen::Search => match key.code {
             KeyCode::Char(c) => {
@@ -230,18 +360,12 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             KeyCode::Enter => {
                 if !app.search_input.is_empty() && app.search_input != app.last_search_query {
                     let search_client = client.search_client();
-                    let result = runtime
-                        .block_on(async { search_client.search(app.search_input.clone()).await });
+                    let result = search_client.search(app.search_input.clone()).await;
                     if let Ok(result) = result {
                         app.search_result = result;
                         app.last_search_query = app.search_input.clone();
                     } else if let Err(e) = result {
                         eprintln!("Error: {}", e);
-                    } else if !app.search_result.is_empty()
-                        && app.search_input == app.last_search_query
-                    {
-                        // TODO add better handling
-                        eprintln!("Error")
                     }
                 } else if !app.search_result.is_empty() {
                     app.selected_manga = Some(app.search_result[app.selected_index].clone());
@@ -252,12 +376,9 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                         eprintln!("Value of id was none. exiting..");
                         return;
                     };
-                    let chapter_result = runtime.block_on(async {
-                        let chapter_data_result = chapter_client
-                            .fetch_chapter(manga_id_str.as_str(), Some("en"))
-                            .await;
-                        chapter_data_result
-                    });
+                    let chapter_result = chapter_client
+                        .fetch_chapter(manga_id_str.as_str(), Some("en"))
+                        .await;
                     let Ok(chapter_data) = chapter_result else {
                         eprint!("There was an error fetching the chapter data");
                         return;
@@ -270,7 +391,7 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
             KeyCode::Down => {
                 if app.selected_index + 1 < app.search_result.len() {
-                    app.selected_index = app.selected_index + 1;
+                    app.selected_index += 1;
                 }
             }
             _ => {}
@@ -282,17 +403,13 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             KeyCode::Up => app.selected_index = app.selected_index.saturating_sub(1),
             KeyCode::Down => {
                 if app.selected_index + 1 < app.chapters.len() {
-                    app.selected_index = app.selected_index + 1;
+                    app.selected_index += 1;
                 }
             }
             KeyCode::Enter => {
-                // create client
-                // get chapter id
-                // get imageData
                 let image_client = client.image_client();
                 let chapter_id = &app.chapters[app.selected_index].id;
-                let result =
-                    runtime.block_on(async { image_client.fetch_image_data(chapter_id).await });
+                let result = image_client.fetch_image_data(chapter_id).await;
                 let Ok(image_data) = result else {
                     eprintln!("There was an error getting the image data: {:?}", result);
                     return;
@@ -303,21 +420,18 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     .as_ref()
                     .expect("Image data should be present");
                 if img_data.chapter.data.is_empty() {
-                    // TODO add a display for users to kmow there are
-                    // no pages available
-                    eprint!("there are not pages to display");
+                    eprint!("there are no pages to display");
                     return;
                 }
                 app.current_page = 0;
                 app.page_cache.clear();
+                app.proto_cache.clear();
+                app.fetched.clear();
                 app.page_left = None;
                 app.page_right = None;
-                
-                // Optimized spread loading (Concurrent + Cache + Prefetch)
-                if let Some(img_data) = app.image_data.clone() {
-                    runtime.block_on(load_spread(app, &image_client, &img_data));
-                }
 
+                let img_data = img_data.clone();
+                load_spread(app, &client.http_client, &img_data, page_tx, proto_tx).await;
                 app.screen = AppScreen::Reading;
             }
             _ => {}
@@ -327,24 +441,18 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                 app.screen = AppScreen::ChapterList;
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                // Next spread
                 if let Some(img_data) = app.image_data.clone() {
                     if app.current_page + 2 < img_data.chapter.data.len() {
                         app.current_page += 2;
-                        
-                        let image_client = client.image_client();
-                        runtime.block_on(load_spread(app, &image_client, &img_data));
+                        load_spread(app, &client.http_client, &img_data, page_tx, proto_tx).await;
                     }
                 }
             }
             KeyCode::Char('h') | KeyCode::Left => {
-                // Previous spread
                 if let Some(img_data) = app.image_data.clone() {
                     if app.current_page >= 2 {
                         app.current_page -= 2;
-
-                        let image_client = client.image_client();
-                        runtime.block_on(load_spread(app, &image_client, &img_data));
+                        load_spread(app, &client.http_client, &img_data, page_tx, proto_tx).await;
                     }
                 }
             }
@@ -353,98 +461,161 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
     }
 }
 
+/// Serves the current spread from cache when available, spawns background fetches for
+/// anything missing, and fire-and-forgets prefetch + protocol pre-building for the next spread.
+///
+/// # Logic
+/// 1. Immediately serves right/left pages if in `app.page_cache`.
+/// 2. If an image is cached but its protocol is missing or stale (due to resize),
+///    spawns a `spawn_proto` task to re-build it.
+/// 3. For any missing images, spawns a `spawn_fetch` task.
+/// 4. Spawns background fetches for all remaining pages in the chapter.
 async fn load_spread(
     app: &mut App,
-    image_client: &yomu::image::ImageClient<'_>,
-    img_data: &yomu::image::ImageDataResponse,
+    http: &reqwest::Client,
+    img_data: &ImageDataResponse,
+    page_tx: &mpsc::Sender<PageMsg>,
+    proto_tx: &mpsc::Sender<ProtoMsg>,
 ) {
     let current = app.current_page;
     let next = current + 1;
 
-    // 1. Check Cache
-    let has_right = app.page_cache.contains_key(&current);
-    let has_left = img_data.chapter.data.len() > next && app.page_cache.contains_key(&next);
-
-    if has_right {
-        app.page_right = app.page_cache.get(&current).cloned();
-    }
-    if has_left {
-        app.page_left = app.page_cache.get(&next).cloned();
-    }
-
-    // 2. Fetch missing pages concurrently
-    if !has_right || (!has_left && img_data.chapter.data.len() > next) {
-        let fut_right = async {
-            if !has_right {
-                let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[current]);
-                if let Ok(bytes) = image_client.download_image_bytes(&url).await {
-                    return image::load_from_memory(&bytes).ok();
-                }
+    // Right panel (current page)
+    if let Some(img) = app.page_cache.get(&current) {
+        app.page_right = Some(img.clone());
+        // Kick off proto build if the cached proto is stale or missing for this area
+        if app.last_right_area != Rect::default() {
+            let needs_proto = app
+                .proto_cache
+                .get(&(current, false))
+                .map_or(true, |(a, _)| {
+                    a.width != app.last_right_area.width || a.height != app.last_right_area.height
+                });
+            if needs_proto {
+                spawn_proto(
+                    app.picker.clone(),
+                    img.clone(),
+                    app.last_right_area,
+                    current,
+                    false,
+                    proto_tx.clone(),
+                );
             }
-            None
-        };
-
-        let fut_left = async {
-            if !has_left && img_data.chapter.data.len() > next {
-                let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[next]);
-                if let Ok(bytes) = image_client.download_image_bytes(&url).await {
-                    return image::load_from_memory(&bytes).ok();
-                }
-            }
-            None
-        };
-
-        let (res_right, res_left) = tokio::join!(fut_right, fut_left);
-
-        if let Some(img) = res_right {
-            app.page_cache.insert(current, img.clone());
-            app.page_right = Some(img);
         }
-        if let Some(img) = res_left {
-            app.page_cache.insert(next, img.clone());
-            app.page_left = Some(img);
-        } else if img_data.chapter.data.len() <= next {
+    } else {
+        app.page_right = None;
+        spawn_fetch(http.clone(), build_url(img_data, current), current, page_tx.clone());
+    }
+
+    // Left panel (next page)
+    if next < img_data.chapter.data.len() {
+        if let Some(img) = app.page_cache.get(&next) {
+            app.page_left = Some(img.clone());
+            if app.last_left_area != Rect::default() {
+                let needs_proto = app
+                    .proto_cache
+                    .get(&(next, true))
+                    .map_or(true, |(a, _)| {
+                        a.width != app.last_left_area.width || a.height != app.last_left_area.height
+                    });
+                if needs_proto {
+                    spawn_proto(
+                        app.picker.clone(),
+                        img.clone(),
+                        app.last_left_area,
+                        next,
+                        true,
+                        proto_tx.clone(),
+                    );
+                }
+            }
+        } else {
             app.page_left = None;
+            spawn_fetch(http.clone(), build_url(img_data, next), next, page_tx.clone());
         }
+    } else {
+        app.page_left = None;
     }
 
-    // 3. Prefetch next spread
-    prefetch_spread(app, image_client, img_data).await;
+    // Download every remaining page in the chapter in the background.
+    // `fetched` tracks which pages already have an in-flight or completed download
+    // so we never duplicate work across multiple navigations.
+    for i in 0..img_data.chapter.data.len() {
+        if !app.page_cache.contains_key(&i) && app.fetched.insert(i) {
+            spawn_fetch(http.clone(), build_url(img_data, i), i, page_tx.clone());
+        }
+    }
 }
 
-async fn prefetch_spread(
-    app: &mut App,
-    image_client: &yomu::image::ImageClient<'_>,
-    img_data: &yomu::image::ImageDataResponse,
+fn build_url(img_data: &ImageDataResponse, idx: usize) -> String {
+    format!(
+        "{}/data/{}/{}",
+        img_data.base_url, img_data.chapter.hash, img_data.chapter.data[idx]
+    )
+}
+
+/// Downloads an image in a background async task.
+///
+/// Image decoding is CPU-bound and is performed in a dedicated blocking thread
+/// via `tokio::task::spawn_blocking` to avoid stalling the async reactor. Redundant
+/// decodes are avoided by checking `app.page_cache` before calling this.
+fn spawn_fetch(
+    http: reqwest::Client,
+    url: String,
+    idx: usize,
+    page_tx: mpsc::Sender<PageMsg>,
 ) {
-    let prefetch_idx = app.current_page + 2;
-    let prefetch_next_idx = prefetch_idx + 1;
-
-    if prefetch_idx < img_data.chapter.data.len() && !app.page_cache.contains_key(&prefetch_idx) {
-        let fut_p1 = async {
-            let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[prefetch_idx]);
-            if let Ok(bytes) = image_client.download_image_bytes(&url).await {
-                return image::load_from_memory(&bytes).ok();
-            }
-            None
+    tokio::spawn(async move {
+        let Ok(resp) = http.get(&url).send().await else {
+            return;
         };
-
-        let fut_p2 = async {
-            if prefetch_next_idx < img_data.chapter.data.len() && !app.page_cache.contains_key(&prefetch_next_idx) {
-                let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[prefetch_next_idx]);
-                if let Ok(bytes) = image_client.download_image_bytes(&url).await {
-                    return image::load_from_memory(&bytes).ok();
-                }
-            }
-            None
+        let Ok(bytes) = resp.bytes().await else {
+            return;
         };
+        // Decode on a blocking thread — image::load_from_memory is CPU-intensive
+        let bytes = bytes.to_vec();
+        let Ok(Ok(img)) =
+            tokio::task::spawn_blocking(move || image::load_from_memory(&bytes)).await
+        else {
+            return;
+        };
+        let _ = page_tx.send((idx, img)).await;
+    });
+}
 
-        let (p1, p2) = tokio::join!(fut_p1, fut_p2);
-        if let Some(img) = p1 {
-            app.page_cache.insert(prefetch_idx, img);
-        }
-        if let Some(img) = p2 {
-            app.page_cache.insert(prefetch_next_idx, img);
-        }
-    }
+/// Encodes a `DynamicImage` into a terminal graphics protocol in a background task.
+///
+/// Uses the `Triangle` filter for scaling, which provides a significant speedup (3-5x)
+/// over `Lanczos3` with negligible quality loss at typical terminal resolutions.
+///
+/// # Arguments
+/// * `picker` - The graphics engine.
+/// * `img` - The decoded image to encode.
+/// * `area` - The target terminal area (Rect).
+/// * `idx` - The page index.
+/// * `is_left` - Whether this is for the left or right panel.
+/// * `proto_tx` - Channel to send the result back to the main loop.
+fn spawn_proto(
+    picker: Option<ratatui_image::picker::Picker>,
+    img: image::DynamicImage,
+    area: Rect,
+    idx: usize,
+    is_left: bool,
+    proto_tx: mpsc::Sender<ProtoMsg>,
+) {
+    let picker = picker.unwrap_or_else(ratatui_image::picker::Picker::halfblocks);
+    tokio::spawn(async move {
+        let Ok(Ok(p)) = tokio::task::spawn_blocking(move || {
+            picker.new_protocol(
+                img,
+                area,
+                ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Triangle)),
+            )
+        })
+        .await
+        else {
+            return;
+        };
+        let _ = proto_tx.send((idx, is_left, p)).await;
+    });
 }
