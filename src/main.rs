@@ -8,6 +8,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::widgets::ListState;
+use ratatui::widgets::Paragraph;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders},
@@ -48,18 +49,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn render(app: &App, frame: &mut Frame<'_>) {
     match app.screen {
         AppScreen::Search => draw_search(app, frame),
-        AppScreen::ChapterList => {
-            // let Some(manga_title) = app
-            //     .selected_manga
-            //     .as_ref()
-            //     .map(|manga| manga.attributes.title.as_ref().and_then(|m| m.get("ja-ro")))
-            //     .flatten()
-            // else {
-            //     return;
-            // };
-            draw_chapter_list(app, frame)
-        }
-        AppScreen::Reading => todo!(),
+        AppScreen::ChapterList => draw_chapter_list(app, frame),
+        AppScreen::Reading => draw_reading_page(app, frame),
     }
 }
 
@@ -164,6 +155,20 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
+fn draw_reading_page(_app: &App, frame: &mut Frame<'_>) {
+    let [header, body] =
+        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
+
+    let [left, right] =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
+
+    Paragraph::new("headers spread")
+        .centered()
+        .render(header, frame.buffer_mut());
+
+    frame.render_widget(Block::bordered().title("page<l>"), left);
+    frame.render_widget(Block::bordered().title("page<r>"), right);
+}
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
     match app.screen {
         AppScreen::Search => match key.code {
@@ -232,13 +237,22 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                 }
             }
             KeyCode::Enter => {
+                // create client
+                // get chapter id
+                // get imageData
                 let image_client = client.image_client();
-                let Some(manga_id) = app.selected_manga.as_ref().map(|m| m.id.as_ref()) else {
-                    eprintln!("Error retreiving manga id");
+                let chapter_id = &app.chapters[app.selected_index].id;
+                let result =
+                    runtime.block_on(async { image_client.fetch_image_data(chapter_id).await });
+                let Ok(image_data) = result else {
+                    eprintln!("There was an error getting the image data: {:?}", result);
                     return;
                 };
-                let result =
-                    runtime.block_on(async { image_client.fetch_image_data(manga_id).await });
+                app.image_data = Some(image_data);
+                app.screen = AppScreen::Reading;
+                // let Some(base_url) = app.image_data.as_ref().map(|d| d.base_url.clone()) else {
+                //     return;
+                // };
             }
             _ => {}
         },
