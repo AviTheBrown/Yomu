@@ -12,7 +12,7 @@ use ratatui::widgets::ListState;
 use ratatui::widgets::Paragraph;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Gauge},
 };
 use ratatui_image::protocol::Protocol;
 use std::io::stdout;
@@ -375,8 +375,8 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
     // Background
     frame.render_widget(Block::default().bg(Color::Rgb(10, 10, 20)), area);
 
-    let [header, body] =
-        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+    let [header, body, footer] =
+        Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(area);
 
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
@@ -385,15 +385,21 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
     app.last_right_area = right;
     app.last_left_area = left;
 
-    let page_info = if let Some(img_data) = &app.image_data {
-        format!(
-            "Pages {} & {} / {} - Press 'b' to go back",
-            app.current_page + 1,
-            app.current_page + 2,
-            img_data.chapter.data.len()
+    let (page_info, progress) = if let Some(img_data) = &app.image_data {
+        let total = img_data.chapter.data.len();
+        let cached = app.page_cache.len();
+        let p = if total > 0 { cached as f64 / total as f64 } else { 0.0 };
+        (
+            format!(
+                "Pages {} & {} / {} - Press 'b' to go back",
+                app.current_page + 1,
+                app.current_page + 2,
+                total
+            ),
+            p
         )
     } else {
-        "Reading Mode - Press 'b' to go back".to_string()
+        ("Reading Mode - Press 'b' to go back".to_string(), 0.0)
     };
 
     let manga_display = match app.chapters.get(app.selected_index) {
@@ -419,6 +425,14 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
 
     render_panel(app, frame, right, current, false);
     render_panel(app, frame, left, next, true);
+
+    // Render Progress Gauge in footer
+    let gauge = Gauge::default()
+        .gauge_style(Style::default().fg(Color::Rgb(255, 105, 180)).bg(Color::Rgb(30, 30, 40)))
+        .ratio(progress)
+        .label(format!("Chapter Loading: {:.0}%", progress * 100.0))
+        .use_unicode(true);
+    frame.render_widget(gauge, footer);
 }
 
 /// Renders one panel. Looks up the pre-built protocol from the cache; if stale or missing,
