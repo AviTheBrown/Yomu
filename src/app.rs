@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use yomu::{ChapterData, ImageDataResponse, MangaData};
 
 /// The main application state.
@@ -27,6 +28,8 @@ pub struct App {
     pub page_right: Option<image::DynamicImage>,
     /// The image rendering engine for the terminal.
     pub picker: Option<ratatui_image::picker::Picker>,
+    /// In-memory cache for decoded manga pages.
+    pub page_cache: HashMap<usize, image::DynamicImage>,
 }
 /// The different screens in the application.
 pub enum AppScreen {
@@ -55,6 +58,7 @@ impl App {
             page_left: None,
             page_right: None,
             picker: None,
+            page_cache: HashMap::new(),
         }
     }
 }

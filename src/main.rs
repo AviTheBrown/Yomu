@@ -310,24 +310,9 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                 }
                 app.current_page = 0;
                 
-                // Fetch Page 1 (Right Panel)
-                let url_right = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[0]);
-                if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_right).await }) {
-                    if let Ok(img) = image::load_from_memory(&bytes) {
-                        app.page_right = Some(img);
-                    }
-                }
-
-                // Fetch Page 2 (Left Panel) if it exists
-                if img_data.chapter.data.len() > 1 {
-                    let url_left = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[1]);
-                    if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_left).await }) {
-                        if let Ok(img) = image::load_from_memory(&bytes) {
-                            app.page_left = Some(img);
-                        }
-                    }
-                } else {
-                    app.page_left = None;
+                // Optimized spread loading (Concurrent + Cache + Prefetch)
+                if let Some(img_data) = app.image_data.clone() {
+                    runtime.block_on(load_spread(app, &image_client, &img_data));
                 }
 
                 app.screen = AppScreen::Reading;
@@ -340,69 +325,123 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
             }
             KeyCode::Char('l') | KeyCode::Right => {
                 // Next spread
-                if let Some(img_data) = &app.image_data {
+                if let Some(img_data) = app.image_data.clone() {
                     if app.current_page + 2 < img_data.chapter.data.len() {
                         app.current_page += 2;
                         
-                        // Clear current pages
-                        app.page_left = None;
-                        app.page_right = None;
-
                         let image_client = client.image_client();
-                        
-                        // Fetch new Page (Right)
-                        let url_right = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page]);
-                        if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_right).await }) {
-                            if let Ok(img) = image::load_from_memory(&bytes) {
-                                app.page_right = Some(img);
-                            }
-                        }
-
-                        // Fetch new Page (Left)
-                        if app.current_page + 1 < img_data.chapter.data.len() {
-                            let url_left = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page + 1]);
-                            if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_left).await }) {
-                                if let Ok(img) = image::load_from_memory(&bytes) {
-                                    app.page_left = Some(img);
-                                }
-                            }
-                        }
+                        runtime.block_on(load_spread(app, &image_client, &img_data));
                     }
                 }
             }
             KeyCode::Char('h') | KeyCode::Left => {
                 // Previous spread
-                if let Some(img_data) = &app.image_data {
+                if let Some(img_data) = app.image_data.clone() {
                     if app.current_page >= 2 {
                         app.current_page -= 2;
 
-                        // Clear current pages
-                        app.page_left = None;
-                        app.page_right = None;
-
                         let image_client = client.image_client();
-                        
-                        // Fetch new Page (Right)
-                        let url_right = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page]);
-                        if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_right).await }) {
-                            if let Ok(img) = image::load_from_memory(&bytes) {
-                                app.page_right = Some(img);
-                            }
-                        }
-
-                        // Fetch new Page (Left)
-                        if app.current_page + 1 < img_data.chapter.data.len() {
-                            let url_left = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page + 1]);
-                            if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_left).await }) {
-                                if let Ok(img) = image::load_from_memory(&bytes) {
-                                    app.page_left = Some(img);
-                                }
-                            }
-                        }
+                        runtime.block_on(load_spread(app, &image_client, &img_data));
                     }
                 }
             }
             _ => {}
         },
+    }
+}
+
+async fn load_spread(
+    app: &mut App,
+    image_client: &yomu::image::ImageClient<'_>,
+    img_data: &yomu::image::ImageDataResponse,
+) {
+    let current = app.current_page;
+    let next = current + 1;
+
+    // 1. Check Cache
+    let has_right = app.page_cache.contains_key(&current);
+    let has_left = img_data.chapter.data.len() > next && app.page_cache.contains_key(&next);
+
+    if has_right {
+        app.page_right = app.page_cache.get(&current).cloned();
+    }
+    if has_left {
+        app.page_left = app.page_cache.get(&next).cloned();
+    }
+
+    // 2. Fetch missing pages concurrently
+    if !has_right || (!has_left && img_data.chapter.data.len() > next) {
+        let fut_right = async {
+            if !has_right {
+                let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[current]);
+                if let Ok(bytes) = image_client.download_image_bytes(&url).await {
+                    return image::load_from_memory(&bytes).ok();
+                }
+            }
+            None
+        };
+
+        let fut_left = async {
+            if !has_left && img_data.chapter.data.len() > next {
+                let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[next]);
+                if let Ok(bytes) = image_client.download_image_bytes(&url).await {
+                    return image::load_from_memory(&bytes).ok();
+                }
+            }
+            None
+        };
+
+        let (res_right, res_left) = tokio::join!(fut_right, fut_left);
+
+        if let Some(img) = res_right {
+            app.page_cache.insert(current, img.clone());
+            app.page_right = Some(img);
+        }
+        if let Some(img) = res_left {
+            app.page_cache.insert(next, img.clone());
+            app.page_left = Some(img);
+        } else if img_data.chapter.data.len() <= next {
+            app.page_left = None;
+        }
+    }
+
+    // 3. Prefetch next spread
+    prefetch_spread(app, image_client, img_data).await;
+}
+
+async fn prefetch_spread(
+    app: &mut App,
+    image_client: &yomu::image::ImageClient<'_>,
+    img_data: &yomu::image::ImageDataResponse,
+) {
+    let prefetch_idx = app.current_page + 2;
+    let prefetch_next_idx = prefetch_idx + 1;
+
+    if prefetch_idx < img_data.chapter.data.len() && !app.page_cache.contains_key(&prefetch_idx) {
+        let fut_p1 = async {
+            let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[prefetch_idx]);
+            if let Ok(bytes) = image_client.download_image_bytes(&url).await {
+                return image::load_from_memory(&bytes).ok();
+            }
+            None
+        };
+
+        let fut_p2 = async {
+            if prefetch_next_idx < img_data.chapter.data.len() && !app.page_cache.contains_key(&prefetch_next_idx) {
+                let url = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[prefetch_next_idx]);
+                if let Ok(bytes) = image_client.download_image_bytes(&url).await {
+                    return image::load_from_memory(&bytes).ok();
+                }
+            }
+            None
+        };
+
+        let (p1, p2) = tokio::join!(fut_p1, fut_p2);
+        if let Some(img) = p1 {
+            app.page_cache.insert(prefetch_idx, img);
+        }
+        if let Some(img) = p2 {
+            app.page_cache.insert(prefetch_next_idx, img);
+        }
     }
 }

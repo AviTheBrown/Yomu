@@ -57,7 +57,7 @@ impl<'mangaclient> ImageClient<'mangaclient> {
 }
 
 /// Response from the MangaDex API for a chapter's image data.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ImageDataResponse {
     /// Result of the request (e.g., "ok").
     pub result: String,
@@ -68,7 +68,7 @@ pub struct ImageDataResponse {
     pub chapter: ImageAttributes,
 }
 /// Image filenames and content hash for a chapter.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ImageAttributes {
     /// The content hash used in the image URL path.
     pub hash: String,
