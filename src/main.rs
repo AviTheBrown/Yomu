@@ -187,7 +187,7 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
             frame.render_widget(ratatui_image::Image::new(&*p), right);
         }
     } else {
-        frame.render_widget(Paragraph::new("...").centered().block(Block::bordered().title("Right Page")), right);
+        frame.render_widget(Paragraph::new("...").centered(), right);
     }
 
     // Left Panel (Page N+1)
@@ -196,7 +196,7 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
             frame.render_widget(ratatui_image::Image::new(&*p), left);
         }
     } else {
-        frame.render_widget(Paragraph::new("...").centered().block(Block::bordered().title("Left Page")), left);
+        frame.render_widget(Paragraph::new("...").centered(), left);
     }
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
