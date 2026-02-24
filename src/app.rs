@@ -25,6 +25,8 @@ pub struct App {
     pub ascii_page: Option<String>,
     /// The currently decoded image for rendering.
     pub current_image: Option<image::DynamicImage>,
+    /// The image rendering engine for the terminal.
+    pub picker: Option<ratatui_image::picker::Picker>,
 }
 /// The different screens in the application.
 pub enum AppScreen {
@@ -52,6 +54,7 @@ impl App {
             current_page: 0,
             ascii_page: None,
             current_image: None,
+            picker: ratatui_image::picker::Picker::from_termios().ok(),
         }
     }
 }

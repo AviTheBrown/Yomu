@@ -167,13 +167,24 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
         .render(header, frame.buffer_mut());
 
     if let Some(img) = &app.current_image {
-        // Use halfblocks for universal high-quality compatibility
-        let mut picker = ratatui_image::picker::Picker::from_termios().ok().unwrap_or_else(|| {
-             ratatui_image::picker::Picker::new((8, 16))
-        });
-        picker.protocol_type = ratatui_image::picker::ProtocolType::Halfblocks;
-        
-        let protocol = picker.new_protocol(img.clone(), left, ratatui_image::Resize::Fit(None)).ok();
+        // Use the persistent picker from App state if available, or a fallback
+        let mut fallback_picker;
+        let picker = if let Some(p) = app.picker.as_ref() {
+            // We need a mut picker, so we'll have to create one if we can't use the app one
+            // In a real app, we'd store the Protocol, but for now let's just make sure it's mut
+            fallback_picker = p.clone();
+            &mut fallback_picker
+        } else {
+            fallback_picker = ratatui_image::picker::Picker::new((8, 16));
+            &mut fallback_picker
+        };
+
+        // Use Lanczos3 for superior sharpness
+        let protocol = picker.new_protocol(
+            img.clone(), 
+            left, 
+            ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))
+        ).ok();
         if let Some(p) = protocol {
             let image_widget = ratatui_image::Image::new(&*p);
             frame.render_widget(image_widget, left);
