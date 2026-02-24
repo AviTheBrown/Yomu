@@ -156,24 +156,6 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     );
 }
 fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
-    let Some(_image_data) = app.image_data.as_ref() else {
-        frame.render_widget(
-            Paragraph::new("Loading pages...")
-                .centered()
-                .block(Block::bordered()),
-            frame.area(),
-        );
-        return;
-    };
-    let Some(ascii_art) = app.ascii_page.as_ref() else {
-        frame.render_widget(
-            Paragraph::new("Loading pages...")
-                .centered()
-                .block(Block::bordered()),
-            frame.area(),
-        );
-        return;
-    };
     let [header, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
 
@@ -184,10 +166,27 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
         .centered()
         .render(header, frame.buffer_mut());
 
-    frame.render_widget(
-        Paragraph::new(ascii_art.as_str()).block(Block::bordered().title("page<l>")),
-        left,
-    );
+    if let Some(img) = &app.current_image {
+        // Use halfblocks for universal high-quality compatibility
+        let mut picker = ratatui_image::picker::Picker::from_termios().ok().unwrap_or_else(|| {
+             ratatui_image::picker::Picker::new((8, 16))
+        });
+        picker.protocol_type = ratatui_image::picker::ProtocolType::Halfblocks;
+        
+        let protocol = picker.new_protocol(img.clone(), left, ratatui_image::Resize::Fit(None)).ok();
+        if let Some(p) = protocol {
+            let image_widget = ratatui_image::Image::new(&*p);
+            frame.render_widget(image_widget, left);
+        }
+    } else {
+        frame.render_widget(
+            Paragraph::new("Loading image...")
+                .centered()
+                .block(Block::bordered()),
+            left,
+        );
+    }
+    
     frame.render_widget(Block::bordered().title("page<r>"), right);
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
@@ -305,6 +304,11 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     yomu::ascii::convert_to_ascii(&img_bytes, target_width, target_height * 2)
                 {
                     app.ascii_page = Some(ascii);
+                }
+
+                // Decode image for high-quality rendering
+                if let Ok(img) = image::load_from_memory(&img_bytes) {
+                    app.current_image = Some(img);
                 }
 
                 app.screen = AppScreen::Reading;

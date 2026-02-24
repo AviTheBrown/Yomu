@@ -23,6 +23,8 @@ pub struct App {
     pub current_page: usize,
     /// The ASCII art representation of the current page.
     pub ascii_page: Option<String>,
+    /// The currently decoded image for rendering.
+    pub current_image: Option<image::DynamicImage>,
 }
 /// The different screens in the application.
 pub enum AppScreen {
@@ -49,6 +51,7 @@ impl App {
             selected_index: 0,
             current_page: 0,
             ascii_page: None,
+            current_image: None,
         }
     }
 }

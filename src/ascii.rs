@@ -21,10 +21,9 @@ pub fn convert_to_ascii(bytes: &[u8], width: u32, height: u32) -> Result<String>
     
     let img = load_from_memory(bytes)?
         .resize(width, height / 2, FilterType::Triangle)
-        .grayscale()
-        .into_bytes();
+        .to_luma8();
 
-    let mut ascii_art = String::with_capacity((img.len() + height as usize) * 2);
+    let mut ascii_art = String::with_capacity((img.len() as usize + height as usize) * 2);
     let char_list: Vec<char> = ascii_chars.chars().collect();
     let num_chars = char_list.len();
 
