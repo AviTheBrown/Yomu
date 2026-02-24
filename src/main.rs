@@ -309,6 +309,9 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     return;
                 }
                 app.current_page = 0;
+                app.page_cache.clear();
+                app.page_left = None;
+                app.page_right = None;
                 
                 // Optimized spread loading (Concurrent + Cache + Prefetch)
                 if let Some(img_data) = app.image_data.clone() {
