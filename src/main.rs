@@ -238,23 +238,37 @@ fn draw_splash(_app: &App, frame: &mut Frame<'_>) {
 
 /// Renders the manga search and results screen.
 fn draw_search(app: &App, frame: &mut Frame<'_>) {
+    let area = frame.area();
+    // Background
+    frame.render_widget(Block::default().bg(Color::Rgb(10, 10, 20)), area);
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
-        .split(frame.area());
+        .split(area);
     let search_area = layout[0];
     let result_area = layout[1];
+
     let mut list_state = ListState::default();
+    list_state.select(Some(app.selected_index));
+
+    // Search Box
     frame.render_widget(
-        ratatui::widgets::Paragraph::new(app.search_input.as_str())
-            .block(Block::default().borders(Borders::ALL).title_top("Search")),
+        Paragraph::new(app.search_input.as_str()).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" 🔍 Search ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        ),
         search_area,
     );
+
+    // Results List
     let items: Vec<ratatui::widgets::ListItem> = app
         .search_result
         .iter()
-        .map(|manga| {
-            let title = manga
+        .map(|m| {
+            let title = m
                 .attributes
                 .title
                 .as_ref()
@@ -264,79 +278,92 @@ fn draw_search(app: &App, frame: &mut Frame<'_>) {
             ratatui::widgets::ListItem::new(title)
         })
         .collect();
-    list_state.select(Some(app.selected_index));
-    frame.render_stateful_widget(
-        ratatui::widgets::List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title_top("Result(s)"),
-            )
-            .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black)),
-        result_area,
-        &mut list_state,
-    );
+
+    let list = ratatui::widgets::List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" 📚 Results ")
+                .border_style(Style::default().fg(Color::Rgb(255, 105, 180))),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(255, 105, 180))
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
+
+    frame.render_stateful_widget(list, result_area, &mut list_state);
 }
 
 /// Renders the list of chapters for a selected manga.
 fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
+    let area = frame.area();
+    // Background
+    frame.render_widget(Block::default().bg(Color::Rgb(10, 10, 20)), area);
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
-        .split(frame.area());
+        .split(area);
 
-    let manga_area = layout[0];
-    let chapter_list_area = layout[1];
+    let header_area = layout[0];
+    let list_area = layout[1];
 
-    let mut list_state = ListState::default();
-    let manga_name = app
+    let manga_title = app
         .selected_manga
         .as_ref()
         .and_then(|m| m.attributes.title.as_ref())
         .and_then(|t| t.get("en"))
-        .map(|s| s.as_str())
+        .map(|t| t.as_str())
         .unwrap_or("Unknown Manga");
+
+    // Header
     frame.render_widget(
-        ratatui::widgets::Paragraph::new(manga_name)
-            .block(Block::default().borders(Borders::ALL).title_top("Manga")),
-        manga_area,
+        Paragraph::new(format!(" Chapters for: {}", manga_title)).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        ),
+        header_area,
     );
+
+    let mut list_state = ListState::default();
+    list_state.select(Some(app.selected_index));
+
+    // Chapter List
     let items: Vec<ratatui::widgets::ListItem> = app
         .chapters
         .iter()
-        .map(|chapter| {
-            let chpt_name = chapter.attributes.title.as_deref().unwrap_or("No Title");
-            let chpt = chapter
+        .map(|c| {
+            let title = c
                 .attributes
-                .chapter
+                .title
                 .as_deref()
-                .unwrap_or("No Chapter Info");
-            let vol = chapter.attributes.volume.as_deref().unwrap_or("N/A");
-            let pages = chapter
-                .attributes
-                .pages
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "0".to_string());
-
-            ratatui::widgets::ListItem::new(format!(
-                " Chapter {} {}, (Vol.{},{} pages)",
-                chpt, chpt_name, vol, pages
-            ))
+                .unwrap_or("Untitled Chapter");
+            let vol = c.attributes.volume.as_deref().unwrap_or("?");
+            let chap = c.attributes.chapter.as_deref().unwrap_or("?");
+            ratatui::widgets::ListItem::new(format!(" Vol. {} Ch. {} - {}", vol, chap, title))
         })
         .collect();
 
-    list_state.select(Some(app.selected_index));
-    frame.render_stateful_widget(
-        ratatui::widgets::List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title_top("Chapters(s)"),
-            )
-            .highlight_style(Style::default().bg(Color::Blue).fg(Color::Black)),
-        chapter_list_area,
-        &mut list_state,
-    );
+    let list = ratatui::widgets::List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" 📑 Select Chapter ")
+                .border_style(Style::default().fg(Color::Rgb(255, 105, 180))),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(255, 105, 180))
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
+
+    frame.render_stateful_widget(list, list_area, &mut list_state);
 }
 
 /// Renders the high-resolution two-page reading spread.
@@ -344,8 +371,12 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
 /// This function records the current layout areas so background tasks can
 /// accurately pre-build protocols for upcoming pages.
 fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
+    let area = frame.area();
+    // Background
+    frame.render_widget(Block::default().bg(Color::Rgb(10, 10, 20)), area);
+
     let [header, body] =
-        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
+        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
 
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
@@ -373,11 +404,13 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
             .unwrap_or_else(|| "Untitled".to_string()),
         None => "No chapters available".to_string(),
     };
-    let display = format!("Currently reading: {}", manga_display);
+    let display = format!(" Currently reading: {}", manga_display);
     Paragraph::new(display)
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .left_aligned()
         .render(header, frame.buffer_mut());
     Paragraph::new(page_info)
+        .style(Style::default().fg(Color::Rgb(255, 105, 180)))
         .centered()
         .render(header, frame.buffer_mut());
 
