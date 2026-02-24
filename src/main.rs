@@ -156,8 +156,13 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     );
 }
 fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
-    let Some(image_data)= app.image_data.as_ref() else {
-        eprintln!("There was an error fetching the chapter pages");
+    let Some(ascii_art) = app.ascii_page.as_ref() else {
+        frame.render_widget(
+            Paragraph::new("Loading pages...")
+                .centered()
+                .block(Block::bordered()),
+            frame.area(),
+        );
         return;
     };
     let [header, body] =
@@ -166,11 +171,11 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
 
-    Paragraph::new("headers spread")
+    Paragraph::new("Reading Mode - Press 'b' to go back")
         .centered()
         .render(header, frame.buffer_mut());
 
-    frame.render_widget(Block::bordered().title("page<l>"), left);
+    frame.render_widget(Paragraph::new(ascii_art.as_str()).block(Block::bordered().title("page<l>")), left);
     frame.render_widget(Block::bordered().title("page<r>"), right);
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
@@ -267,7 +272,7 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     "{}/data/{}/{}",
                     img_data.base_url, img_data.chapter.hash, img_data.chapter.data[0]
                 );
-                let _img_bytes = match runtime
+                let img_bytes = match runtime
                     .block_on(async { image_client.download_image_bytes(&full_url).await })
                 {
                     Ok(bytes) => bytes,
@@ -276,6 +281,19 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                         return;
                     }
                 };
+
+                let (term_width, term_height) =
+                    crossterm::terminal::size().unwrap_or((80, 24));
+                // We want high quality, so we target 90% of a panel's width
+                // Panels are 50% width.
+                let target_width = (term_width as f32 * 0.45) as u32;
+                // Height in ascii chars (lines) should be about 80% of terminal height
+                let target_height = (term_height as f32 * 0.8) as u32;
+
+                if let Ok(ascii) = yomu::ascii::convert_to_ascii(&img_bytes, target_width, target_height * 2) {
+                    app.ascii_page = Some(ascii);
+                }
+
                 app.screen = AppScreen::Reading;
             }
             _ => {}
