@@ -162,43 +162,42 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
 
-    Paragraph::new("Reading Mode - Press 'b' to go back")
+    let page_info = if let Some(img_data) = &app.image_data {
+        format!("Pages {} & {} / {} - Press 'b' to go back", app.current_page + 1, app.current_page + 2, img_data.chapter.data.len())
+    } else {
+        "Reading Mode - Press 'b' to go back".to_string()
+    };
+
+    Paragraph::new(page_info)
         .centered()
         .render(header, frame.buffer_mut());
 
-    if let Some(img) = &app.current_image {
-        // Use the persistent picker from App state if available, or a fallback
-        let mut fallback_picker;
-        let picker = if let Some(p) = app.picker.as_ref() {
-            // We need a mut picker, so we'll have to create one if we can't use the app one
-            // In a real app, we'd store the Protocol, but for now let's just make sure it's mut
-            fallback_picker = p.clone();
-            &mut fallback_picker
-        } else {
-            fallback_picker = ratatui_image::picker::Picker::new((8, 16));
-            &mut fallback_picker
-        };
+    let mut fallback_picker;
+    let picker = if let Some(p) = app.picker.as_ref() {
+        fallback_picker = p.clone();
+        &mut fallback_picker
+    } else {
+        fallback_picker = ratatui_image::picker::Picker::new((8, 16));
+        &mut fallback_picker
+    };
 
-        // Use Lanczos3 for superior sharpness
-        let protocol = picker.new_protocol(
-            img.clone(), 
-            left, 
-            ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))
-        ).ok();
-        if let Some(p) = protocol {
-            let image_widget = ratatui_image::Image::new(&*p);
-            frame.render_widget(image_widget, left);
+    // Right Panel (Page N)
+    if let Some(img) = &app.page_right {
+        if let Ok(p) = picker.new_protocol(img.clone(), right, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
+            frame.render_widget(ratatui_image::Image::new(&*p), right);
         }
     } else {
-        frame.render_widget(
-            Paragraph::new("Loading image...")
-                .centered()
-                .block(Block::bordered()),
-            left,
-        );
+        frame.render_widget(Paragraph::new("...").centered().block(Block::bordered().title("Right Page")), right);
     }
-    
-    frame.render_widget(Block::bordered().title("page<r>"), right);
+
+    // Left Panel (Page N+1)
+    if let Some(img) = &app.page_left {
+        if let Ok(p) = picker.new_protocol(img.clone(), left, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
+            frame.render_widget(ratatui_image::Image::new(&*p), left);
+        }
+    } else {
+        frame.render_widget(Paragraph::new("...").centered().block(Block::bordered().title("Left Page")), left);
+    }
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
     match app.screen {
@@ -290,36 +289,28 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     eprint!("there are not pages to display");
                     return;
                 }
-                let full_url = format!(
-                    "{}/data/{}/{}",
-                    img_data.base_url, img_data.chapter.hash, img_data.chapter.data[0]
-                );
-                let img_bytes = match runtime
-                    .block_on(async { image_client.download_image_bytes(&full_url).await })
-                {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        eprintln!("there was an error downloading the bytes from the images: {e}");
-                        return;
+                let (_term_width, _term_height) = crossterm::terminal::size().unwrap_or((80, 24));
+                
+                app.current_page = 0;
+                
+                // Fetch Page 1 (Right Panel)
+                let url_right = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[0]);
+                if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_right).await }) {
+                    if let Ok(img) = image::load_from_memory(&bytes) {
+                        app.page_right = Some(img);
                     }
-                };
-
-                let (term_width, term_height) = crossterm::terminal::size().unwrap_or((80, 24));
-                // Target 45% of terminal width (90% of a panel) for high quality
-                // Panels are 50% width.
-                let target_width = (term_width as f32 * 0.45) as u32;
-                // Height in ascii chars (lines) should be about 80% of terminal height
-                let target_height = (term_height as f32 * 0.8) as u32;
-
-                if let Ok(ascii) =
-                    yomu::ascii::convert_to_ascii(&img_bytes, target_width, target_height * 2)
-                {
-                    app.ascii_page = Some(ascii);
                 }
 
-                // Decode image for high-quality rendering
-                if let Ok(img) = image::load_from_memory(&img_bytes) {
-                    app.current_image = Some(img);
+                // Fetch Page 2 (Left Panel) if it exists
+                if img_data.chapter.data.len() > 1 {
+                    let url_left = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[1]);
+                    if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_left).await }) {
+                        if let Ok(img) = image::load_from_memory(&bytes) {
+                            app.page_left = Some(img);
+                        }
+                    }
+                } else {
+                    app.page_left = None;
                 }
 
                 app.screen = AppScreen::Reading;
@@ -329,6 +320,70 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
         AppScreen::Reading => match key.code {
             KeyCode::Char('b') => {
                 app.screen = AppScreen::ChapterList;
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                // Next spread
+                if let Some(img_data) = &app.image_data {
+                    if app.current_page + 2 < img_data.chapter.data.len() {
+                        app.current_page += 2;
+                        
+                        // Clear current pages
+                        app.page_left = None;
+                        app.page_right = None;
+
+                        let image_client = client.image_client();
+                        
+                        // Fetch new Page (Right)
+                        let url_right = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page]);
+                        if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_right).await }) {
+                            if let Ok(img) = image::load_from_memory(&bytes) {
+                                app.page_right = Some(img);
+                            }
+                        }
+
+                        // Fetch new Page (Left)
+                        if app.current_page + 1 < img_data.chapter.data.len() {
+                            let url_left = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page + 1]);
+                            if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_left).await }) {
+                                if let Ok(img) = image::load_from_memory(&bytes) {
+                                    app.page_left = Some(img);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                // Previous spread
+                if let Some(img_data) = &app.image_data {
+                    if app.current_page >= 2 {
+                        app.current_page -= 2;
+
+                        // Clear current pages
+                        app.page_left = None;
+                        app.page_right = None;
+
+                        let image_client = client.image_client();
+                        
+                        // Fetch new Page (Right)
+                        let url_right = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page]);
+                        if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_right).await }) {
+                            if let Ok(img) = image::load_from_memory(&bytes) {
+                                app.page_right = Some(img);
+                            }
+                        }
+
+                        // Fetch new Page (Left)
+                        if app.current_page + 1 < img_data.chapter.data.len() {
+                            let url_left = format!("{}/data/{}/{}", img_data.base_url, img_data.chapter.hash, img_data.chapter.data[app.current_page + 1]);
+                            if let Ok(bytes) = runtime.block_on(async { image_client.download_image_bytes(&url_left).await }) {
+                                if let Ok(img) = image::load_from_memory(&bytes) {
+                                    app.page_left = Some(img);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         },

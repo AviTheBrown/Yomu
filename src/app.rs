@@ -21,10 +21,10 @@ pub struct App {
     pub image_data: Option<ImageDataResponse>,
     /// The current page index when reading a chapter.
     pub current_page: usize,
-    /// The ASCII art representation of the current page.
-    pub ascii_page: Option<String>,
-    /// The currently decoded image for rendering.
-    pub current_image: Option<image::DynamicImage>,
+    /// The currently decoded image for the left panel.
+    pub page_left: Option<image::DynamicImage>,
+    /// The currently decoded image for the right panel.
+    pub page_right: Option<image::DynamicImage>,
     /// The image rendering engine for the terminal.
     pub picker: Option<ratatui_image::picker::Picker>,
 }
@@ -52,8 +52,8 @@ impl App {
             image_data: None,
             selected_index: 0,
             current_page: 0,
-            ascii_page: None,
-            current_image: None,
+            page_left: None,
+            page_right: None,
             picker: ratatui_image::picker::Picker::from_termios().ok(),
         }
     }
