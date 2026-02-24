@@ -14,4 +14,4 @@ reqwest = {version ="0.13.1", features = ["query", "json"]}
 serde = {version ="1.0.228", features = ["derive"]}
 serde_json = "1.0.149"
 tokio = {version = "1", features = ["rt", "macros", "rt-multi-thread", "net"]}
-ratatui-image = "1.0.5"
+ratatui-image = { version = "10.0.6", default-features = false, features = ["crossterm", "image-defaults"] }

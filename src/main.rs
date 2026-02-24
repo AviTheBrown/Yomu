@@ -29,7 +29,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.clear()?;
     
     // Initialize picker after terminal is in raw mode and alternate screen
-    app.picker = ratatui_image::picker::Picker::from_termios().ok();
+    app.picker = ratatui_image::picker::Picker::from_query_stdio().ok();
 
     loop {
         terminal.draw(|frame| {
@@ -182,7 +182,7 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
         fallback_picker = p.clone();
         &mut fallback_picker
     } else {
-        fallback_picker = ratatui_image::picker::Picker::new((8, 16));
+        fallback_picker = ratatui_image::picker::Picker::halfblocks();
         &mut fallback_picker
     };
 
@@ -190,8 +190,8 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
     frame.render_widget(Block::default().bg(Color::Reset), right);
     if let Some(img) = &app.page_right {
         if let Ok(p) = picker.new_protocol(img.clone(), right, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
-            let image_widget = ratatui_image::Image::new(&*p);
-            let actual_area = p.rect();
+            let image_widget = ratatui_image::Image::new(&p);
+            let actual_area = p.area();
             // Align to left of panel (spine)
             let x_offset = 0; 
             let y_offset = (right.height.saturating_sub(actual_area.height)) / 2;
@@ -206,8 +206,8 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
     frame.render_widget(Block::default().bg(Color::Reset), left);
     if let Some(img) = &app.page_left {
         if let Ok(p) = picker.new_protocol(img.clone(), left, ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))) {
-            let image_widget = ratatui_image::Image::new(&*p);
-            let actual_area = p.rect();
+            let image_widget = ratatui_image::Image::new(&p);
+            let actual_area = p.area();
             // Align to right of panel (spine)
             let x_offset = left.width.saturating_sub(actual_area.width);
             let y_offset = (left.height.saturating_sub(actual_area.height)) / 2;
