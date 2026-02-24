@@ -155,7 +155,11 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
         &mut list_state,
     );
 }
-fn draw_reading_page(_app: &App, frame: &mut Frame<'_>) {
+fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
+    let Some(_image_data) = app.image_data.as_ref() else {
+        eprintln!("There was an error fetching the chapter pages");
+        return;
+    };
     let [header, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
 
@@ -249,14 +253,27 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     return;
                 };
                 app.image_data = Some(image_data);
+                let img_data = app.image_data.as_ref().expect("Image data should be present");
+                if img_data.chapter.data.is_empty() {
+                    // TODO add a display for users to know there are
+                    // no pages available
+                    eprint!("there are not pages to display");
+                    return;
+                }
+                let full_url = format!("{}/data/{}/{}", img_data.base_url,  img_data.chapter.hash, img_data.chapter.data[0]);
+                let _img_bytes = runtime.block_on(async {
+                    image_client.download_image_bytes(&full_url).await
+                });
+
                 app.screen = AppScreen::Reading;
-                // let Some(base_url) = app.image_data.as_ref().map(|d| d.base_url.clone()) else {
-                //     return;
-                // };
             }
             _ => {}
         },
-        // AppScreen::Reading => match key.code todo!()
-        _ => {}
+        AppScreen::Reading => match key.code {
+            KeyCode::Char('b') => {
+                app.screen = AppScreen::ChapterList;
+            }
+            _ => {}
+        }
     }
 }
