@@ -284,7 +284,7 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
 
                 let (term_width, term_height) =
                     crossterm::terminal::size().unwrap_or((80, 24));
-                // We want high quality, so we target 90% of a panel's width
+                // Target 45% of terminal width (90% of a panel) for high quality
                 // Panels are 50% width.
                 let target_width = (term_width as f32 * 0.45) as u32;
                 // Height in ascii chars (lines) should be about 80% of terminal height
