@@ -156,7 +156,7 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     );
 }
 fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
-    let Some(_image_data) = app.image_data.as_ref() else {
+    let Some(image_data)= app.image_data.as_ref() else {
         eprintln!("There was an error fetching the chapter pages");
         return;
     };
@@ -253,18 +253,29 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     return;
                 };
                 app.image_data = Some(image_data);
-                let img_data = app.image_data.as_ref().expect("Image data should be present");
+                let img_data = app
+                    .image_data
+                    .as_ref()
+                    .expect("Image data should be present");
                 if img_data.chapter.data.is_empty() {
-                    // TODO add a display for users to know there are
+                    // TODO add a display for users to kmow there are
                     // no pages available
                     eprint!("there are not pages to display");
                     return;
                 }
-                let full_url = format!("{}/data/{}/{}", img_data.base_url,  img_data.chapter.hash, img_data.chapter.data[0]);
-                let _img_bytes = runtime.block_on(async {
-                    image_client.download_image_bytes(&full_url).await
-                });
-
+                let full_url = format!(
+                    "{}/data/{}/{}",
+                    img_data.base_url, img_data.chapter.hash, img_data.chapter.data[0]
+                );
+                let _img_bytes = match runtime
+                    .block_on(async { image_client.download_image_bytes(&full_url).await })
+                {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        eprintln!("there was an error downloading the bytes from the images: {e}");
+                        return;
+                    }
+                };
                 app.screen = AppScreen::Reading;
             }
             _ => {}
@@ -274,6 +285,6 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                 app.screen = AppScreen::ChapterList;
             }
             _ => {}
-        }
+        },
     }
 }
