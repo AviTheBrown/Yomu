@@ -129,10 +129,111 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Dispatches the render call to the appropriate screen drawing function.
 fn render(app: &mut App, frame: &mut Frame<'_>) {
     match app.screen {
+        AppScreen::Splash => draw_splash(app, frame),
         AppScreen::Search => draw_search(app, frame),
         AppScreen::ChapterList => draw_chapter_list(app, frame),
         AppScreen::Reading => draw_reading_page(app, frame),
     }
+}
+
+/// Renders the anime-themed splash screen.
+fn draw_splash(_app: &App, frame: &mut Frame<'_>) {
+    let area = frame.area();
+    
+    // Background color
+    frame.render_widget(Block::default().bg(Color::Rgb(10, 10, 20)), area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(10), // Spacer
+            Constraint::Length(7),      // Title/ASCII
+            Constraint::Length(3),      // Subtitle
+            Constraint::Min(10),        // Info Boxes
+            Constraint::Length(3),      // Footer
+        ])
+        .split(area);
+
+    // ASCII Art Title (Colorful Pink/Magenta)
+    let ascii_art = r#"
+  __     ______  __  __ _    _ 
+  \ \   / / __ \|  \/  | |  | |
+   \ \_/ / |  | | \  / | |  | |
+    \   /| |  | | |\/| | |  | |
+     | | | |__| | |  | | |__| |
+     |_|  \____/|_|  |_|\____/ 
+    "#;
+    Paragraph::new(ascii_art)
+        .style(Style::default().fg(Color::Rgb(255, 105, 180)).add_modifier(Modifier::BOLD))
+        .centered()
+        .render(layout[1], frame.buffer_mut());
+
+    Paragraph::new("The Ultimate Manga Reader for your Terminal ✨")
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::ITALIC))
+        .centered()
+        .render(layout[2], frame.buffer_mut());
+
+    // Three side-by-side boxes
+    let info_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+        ])
+        .margin(2)
+        .split(layout[3]);
+
+    // Directions Box (Blue)
+    let directions = r#"
+• [Enter] Select / Read
+• [Esc]   Back / Quit
+• [Arrows] Navigate
+• [l / r]  Next / Prev Spread
+• [b]      To Chapter List
+    "#;
+    frame.render_widget(
+        Paragraph::new(directions)
+            .block(Block::default().borders(Borders::ALL).title(" 📖 Directions ").border_style(Style::default().fg(Color::Blue)))
+            .style(Style::default().fg(Color::White)),
+        info_layout[0],
+    );
+
+    // Use Cases Box (Green)
+    let use_cases = r#"
+• High-quality MangaDex Reading
+• Instant Pre-built Protocols
+• Blazing-fast Async Engine
+• Smart Image Caching
+• Native Sixel & Kitty Support
+    "#;
+    frame.render_widget(
+        Paragraph::new(use_cases)
+            .block(Block::default().borders(Borders::ALL).title(" 🚀 Use Cases ").border_style(Style::default().fg(Color::Green)))
+            .style(Style::default().fg(Color::White)),
+        info_layout[1],
+    );
+
+    // Limitations Box (Yellow/Orange)
+    let limitations = r#"
+• API Rate Limits apply
+• Requires Network access
+• Terminal must support gfx
+• Encoding is CPU-bound
+• Some protocols are experimental
+    "#;
+    frame.render_widget(
+        Paragraph::new(limitations)
+            .block(Block::default().borders(Borders::ALL).title(" ⚠️ Limitations ").border_style(Style::default().fg(Color::Yellow)))
+            .style(Style::default().fg(Color::White)),
+        info_layout[2],
+    );
+
+    // Footer
+    Paragraph::new("Press [Any Key] to start searching!")
+        .style(Style::default().fg(Color::Rgb(200, 200, 200)).add_modifier(Modifier::SLOW_BLINK))
+        .centered()
+        .render(layout[4], frame.buffer_mut());
 }
 
 /// Renders the manga search and results screen.
@@ -264,6 +365,18 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
         "Reading Mode - Press 'b' to go back".to_string()
     };
 
+    let manga_display = match app.chapters.get(app.selected_index) {
+        Some(chapter) => chapter
+            .attributes
+            .title
+            .clone()
+            .unwrap_or_else(|| "Untitled".to_string()),
+        None => "No chapters available".to_string(),
+    };
+    let display = format!("Currently reading: {}", manga_display);
+    Paragraph::new(display)
+        .left_aligned()
+        .render(header, frame.buffer_mut());
     Paragraph::new(page_info)
         .centered()
         .render(header, frame.buffer_mut());
@@ -277,13 +390,7 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
 
 /// Renders one panel. Looks up the pre-built protocol from the cache; if stale or missing,
 /// builds it synchronously as a fallback (rare after first render of each page).
-fn render_panel(
-    app: &mut App,
-    frame: &mut Frame<'_>,
-    area: Rect,
-    page_idx: usize,
-    is_left: bool,
-) {
+fn render_panel(app: &mut App, frame: &mut Frame<'_>, area: Rect, page_idx: usize, is_left: bool) {
     frame.render_widget(Block::default().bg(Color::Reset), area);
 
     // Check if the cached protocol is still valid for this area size.
@@ -350,6 +457,11 @@ async fn handle_event(
     proto_tx: &mpsc::Sender<ProtoMsg>,
 ) {
     match app.screen {
+        AppScreen::Splash => {
+            // Transition to Search on any key
+            app.screen = AppScreen::Search;
+            app.selected_index = 0;
+        }
         AppScreen::Search => match key.code {
             KeyCode::Char(c) => {
                 app.search_input.push(c);
@@ -504,7 +616,12 @@ async fn load_spread(
         }
     } else {
         app.page_right = None;
-        spawn_fetch(http.clone(), build_url(img_data, current), current, page_tx.clone());
+        spawn_fetch(
+            http.clone(),
+            build_url(img_data, current),
+            current,
+            page_tx.clone(),
+        );
     }
 
     // Left panel (next page)
@@ -512,12 +629,9 @@ async fn load_spread(
         if let Some(img) = app.page_cache.get(&next) {
             app.page_left = Some(img.clone());
             if app.last_left_area != Rect::default() {
-                let needs_proto = app
-                    .proto_cache
-                    .get(&(next, true))
-                    .map_or(true, |(a, _)| {
-                        a.width != app.last_left_area.width || a.height != app.last_left_area.height
-                    });
+                let needs_proto = app.proto_cache.get(&(next, true)).map_or(true, |(a, _)| {
+                    a.width != app.last_left_area.width || a.height != app.last_left_area.height
+                });
                 if needs_proto {
                     spawn_proto(
                         app.picker.clone(),
@@ -531,7 +645,12 @@ async fn load_spread(
             }
         } else {
             app.page_left = None;
-            spawn_fetch(http.clone(), build_url(img_data, next), next, page_tx.clone());
+            spawn_fetch(
+                http.clone(),
+                build_url(img_data, next),
+                next,
+                page_tx.clone(),
+            );
         }
     } else {
         app.page_left = None;
@@ -559,12 +678,7 @@ fn build_url(img_data: &ImageDataResponse, idx: usize) -> String {
 /// Image decoding is CPU-bound and is performed in a dedicated blocking thread
 /// via `tokio::task::spawn_blocking` to avoid stalling the async reactor. Redundant
 /// decodes are avoided by checking `app.page_cache` before calling this.
-fn spawn_fetch(
-    http: reqwest::Client,
-    url: String,
-    idx: usize,
-    page_tx: mpsc::Sender<PageMsg>,
-) {
+fn spawn_fetch(http: reqwest::Client, url: String, idx: usize, page_tx: mpsc::Sender<PageMsg>) {
     tokio::spawn(async move {
         let Ok(resp) = http.get(&url).send().await else {
             return;

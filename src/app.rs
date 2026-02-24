@@ -46,6 +46,8 @@ pub struct App {
 
 /// The different screens in the application.
 pub enum AppScreen {
+    /// The opening splash screen.
+    Splash,
     /// The search input and results screen.
     Search,
     /// The list of chapters for a selected manga.
@@ -58,7 +60,7 @@ impl App {
     /// Creates a new `App` with default state.
     pub fn new() -> Self {
         Self {
-            screen: AppScreen::Search,
+            screen: AppScreen::Splash,
             search_input: String::new(),
             search_result: Vec::new(),
             last_search_query: String::new(),
