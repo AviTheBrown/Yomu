@@ -156,6 +156,15 @@ fn draw_chapter_list(app: &App, frame: &mut Frame<'_>) {
     );
 }
 fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
+    let Some(_image_data) = app.image_data.as_ref() else {
+        frame.render_widget(
+            Paragraph::new("Loading pages...")
+                .centered()
+                .block(Block::bordered()),
+            frame.area(),
+        );
+        return;
+    };
     let Some(ascii_art) = app.ascii_page.as_ref() else {
         frame.render_widget(
             Paragraph::new("Loading pages...")
@@ -175,7 +184,10 @@ fn draw_reading_page(app: &App, frame: &mut Frame<'_>) {
         .centered()
         .render(header, frame.buffer_mut());
 
-    frame.render_widget(Paragraph::new(ascii_art.as_str()).block(Block::bordered().title("page<l>")), left);
+    frame.render_widget(
+        Paragraph::new(ascii_art.as_str()).block(Block::bordered().title("page<l>")),
+        left,
+    );
     frame.render_widget(Block::bordered().title("page<r>"), right);
 }
 fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime: &Runtime) {
@@ -282,15 +294,16 @@ fn handle_event(client: &MangaDexClient, app: &mut App, key: &KeyEvent, runtime:
                     }
                 };
 
-                let (term_width, term_height) =
-                    crossterm::terminal::size().unwrap_or((80, 24));
+                let (term_width, term_height) = crossterm::terminal::size().unwrap_or((80, 24));
                 // Target 45% of terminal width (90% of a panel) for high quality
                 // Panels are 50% width.
                 let target_width = (term_width as f32 * 0.45) as u32;
                 // Height in ascii chars (lines) should be about 80% of terminal height
                 let target_height = (term_height as f32 * 0.8) as u32;
 
-                if let Ok(ascii) = yomu::ascii::convert_to_ascii(&img_bytes, target_width, target_height * 2) {
+                if let Ok(ascii) =
+                    yomu::ascii::convert_to_ascii(&img_bytes, target_width, target_height * 2)
+                {
                     app.ascii_page = Some(ascii);
                 }
 

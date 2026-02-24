@@ -16,15 +16,24 @@ use image::{imageops::FilterType, load_from_memory};
 /// # Ok::<(), yomu::error::YomuError>(())
 /// ```
 pub fn convert_to_ascii(bytes: &[u8], width: u32, height: u32) -> Result<String> {
-    let ascii_chars = " .:-=+*#@";
+    // Professional 70-character grayscale set (ordered from dark to light)
+    let ascii_chars = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ";
+    
     let img = load_from_memory(bytes)?
-        .resize(width, height / 2, FilterType::Nearest)
+        .resize(width, height / 2, FilterType::Triangle)
         .grayscale()
         .into_bytes();
+
     let mut ascii_art = String::with_capacity((img.len() + height as usize) * 2);
+    let char_list: Vec<char> = ascii_chars.chars().collect();
+    let num_chars = char_list.len();
+
     for (i, &brightness) in img.iter().enumerate() {
-        let index = (brightness as usize * 8 / 255).min(8);
-        ascii_art.push(ascii_chars.chars().nth(index).unwrap_or('@'));
+        // Map brightness such that 255 (white) is ' ' and 0 (black) is '$' (darkest)
+        // Since the set is dark-to-light, we use the brightness directly to pick from the end
+        let index = (brightness as usize * (num_chars - 1)) / 255;
+        ascii_art.push(char_list[index]);
+
         if (i + 1) % width as usize == 0 && i + 1 < img.len() {
             ascii_art.push('\n');
         }
