@@ -2,6 +2,7 @@ use crate::chapter::ChapterClient;
 use crate::error::Result;
 use crate::image::ImageClient;
 use crate::search::SearchClient;
+use std::time::Duration;
 
 /// A client for interacting with the MangaDex API.
 ///
@@ -22,10 +23,8 @@ use crate::search::SearchClient;
 /// }
 /// ```
 pub struct MangaDexClient {
-    /// The underlying HTTP client used for making requests.
-    pub http_client: reqwest::Client,
-    /// The base URL for the MangaDex API.
-    pub base_url: String,
+    http_client: reqwest::Client,
+    pub(crate) base_url: String,
 }
 impl MangaDexClient {
     /// Creates a new `MangaDexClient` with default settings.
@@ -33,9 +32,32 @@ impl MangaDexClient {
         Ok(Self {
             http_client: reqwest::Client::builder()
                 .user_agent("Yomu/0.1.0")
+                .timeout(Duration::from_secs(30))
                 .build()?,
             base_url: "https://api.mangadex.org".into(),
         })
+    }
+
+    /// Returns a reference to the underlying HTTP client.
+    ///
+    /// Provides read-only access to the shared `reqwest::Client` for making
+    /// raw HTTP requests, such as downloading images directly from CDN servers.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use yomu::MangaDexClient;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = MangaDexClient::new()?;
+    /// let http = client.http_client();
+    /// let resp = http.get("https://example.com").send().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn http_client(&self) -> &reqwest::Client {
+        &self.http_client
     }
 
     /// Returns a `SearchClient` for searching manga.

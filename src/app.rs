@@ -1,7 +1,14 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use ratatui::layout::Rect;
 use ratatui_image::protocol::Protocol;
+use tokio::sync::Semaphore;
 use yomu::{ChapterData, ImageDataResponse, MangaData};
+
+/// Maximum number of concurrent background image downloads.
+pub const MAX_CONCURRENT_FETCHES: usize = 8;
+/// Maximum number of decoded pages to keep in memory at once.
+pub const MAX_CACHE_PAGES: usize = 20;
 
 /// The main application state.
 pub struct App {
@@ -42,6 +49,12 @@ pub struct App {
     /// Tracks which page indices have an in-flight or completed download
     /// to prevent duplicate network requests.
     pub fetched: std::collections::HashSet<usize>,
+    /// Tracks page indices whose download permanently failed so the UI can
+    /// show an error instead of a perpetual "Loading…" spinner.
+    pub failed: std::collections::HashSet<usize>,
+    /// Limits the number of concurrent background image downloads to avoid
+    /// flooding the CDN and triggering rate-limiting.
+    pub fetch_semaphore: Arc<Semaphore>,
 }
 
 /// The different screens in the application.
@@ -77,6 +90,8 @@ impl App {
             last_right_area: Rect::default(),
             last_left_area: Rect::default(),
             fetched: std::collections::HashSet::new(),
+            failed: std::collections::HashSet::new(),
+            fetch_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_FETCHES)),
         }
     }
 }

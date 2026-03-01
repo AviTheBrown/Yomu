@@ -16,6 +16,7 @@ mod tests {
     use crate::client::MangaDexClient;
 
     #[tokio::test]
+    #[ignore = "requires live network access"]
     async fn test_search() {
         let client = MangaDexClient::new().unwrap();
         let search_client = client.search_client();
@@ -40,6 +41,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live network access"]
     async fn test_chapter() {
         let client = MangaDexClient::new().unwrap();
         let chapter_client = client.chapter_client();
@@ -62,6 +64,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live network access"]
     async fn fetch_image() {
         let client = MangaDexClient::new().unwrap();
         let imgage_fetch_client = client.image_client();

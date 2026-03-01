@@ -26,7 +26,7 @@ impl<'mangaclient> SearchClient<'mangaclient> {
     pub async fn search(&self, title: String) -> Result<Vec<MangaData>> {
         let resp: reqwest::Response = self
             .client
-            .http_client
+            .http_client()
             .get(&format!("{}/manga", self.client.base_url))
             .query(&[("title", title)])
             .send()

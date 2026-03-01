@@ -16,12 +16,14 @@ use ratatui::{
 };
 use ratatui_image::protocol::Protocol;
 use std::io::stdout;
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Semaphore};
 use yomu::MangaDexClient;
 use yomu::image::ImageDataResponse;
 
 /// Message from a background image-download task.
-type PageMsg = (usize, image::DynamicImage);
+/// The `Option` is `None` when the download permanently failed.
+type PageMsg = (usize, Option<image::DynamicImage>);
 /// Message from a background protocol-build task: (page_idx, is_left_panel, protocol).
 type ProtoMsg = (usize, bool, Protocol);
 
@@ -43,7 +45,16 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         // 1. Drain newly downloaded images
-        while let Ok((idx, img)) = page_rx.try_recv() {
+        while let Ok((idx, maybe_img)) = page_rx.try_recv() {
+            // None means the download permanently failed; surface it in the UI.
+            let img = match maybe_img {
+                Some(img) => img,
+                None => {
+                    app.failed.insert(idx);
+                    continue;
+                }
+            };
+
             if idx == app.current_page {
                 app.page_right = Some(img.clone());
             } else if idx == app.current_page + 1 {
@@ -95,6 +106,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             app.page_cache.insert(idx, img);
             app.fetched.insert(idx); // mark complete so re-entering load_spread never re-fetches
+
+            // Evict the page farthest from the current position when the cache is full.
+            if app.page_cache.len() > app::MAX_CACHE_PAGES {
+                if let Some(&evict_idx) = app.page_cache.keys().max_by_key(|&&k| {
+                    (k as isize - app.current_page as isize).unsigned_abs()
+                }) {
+                    app.page_cache.remove(&evict_idx);
+                    app.proto_cache.remove(&(evict_idx, true));
+                    app.proto_cache.remove(&(evict_idx, false));
+                }
+            }
         }
 
         // 2. Drain pre-built protocols into the cache
@@ -378,8 +400,12 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
     let [header, body, footer] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(area);
 
+    // Kawaii side decoration strips flanking the manga spread
+    let [left_deco, content, right_deco] =
+        Layout::horizontal([Constraint::Length(5), Constraint::Fill(1), Constraint::Length(5)]).areas(body);
+
     let [left, right] =
-        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(content);
 
     // Record the current panel areas so background tasks can pre-build protocols at the right size.
     app.last_right_area = right;
@@ -425,6 +451,9 @@ fn draw_reading_page(app: &mut App, frame: &mut Frame<'_>) {
 
     render_panel(app, frame, right, current, false);
     render_panel(app, frame, left, next, true);
+
+    render_kawaii_strip(frame, left_deco);
+    render_kawaii_strip(frame, right_deco);
 
     // Render Progress Gauge in footer
     let gauge = Gauge::default()
@@ -487,9 +516,37 @@ fn render_panel(app: &mut App, frame: &mut Frame<'_>, area: Rect, page_idx: usiz
             actual_area.height,
         );
         frame.render_widget(image_widget, render_area);
+    } else if app.failed.contains(&page_idx) {
+        frame.render_widget(
+            Paragraph::new("Error loading page")
+                .centered()
+                .style(Style::default().fg(Color::Red)),
+            area,
+        );
     } else {
         frame.render_widget(Paragraph::new("Loading...").centered(), area);
     }
+}
+
+/// Renders a narrow kawaii decoration strip (5 cols wide) along the sides of the reading view.
+fn render_kawaii_strip(frame: &mut Frame<'_>, area: Rect) {
+    let rows: &[(&str, Color)] = &[
+        ("✦✿✦✿✦", Color::Rgb(255, 105, 180)),
+        ("♡ ♡ ♡", Color::Rgb(255, 160, 200)),
+        ("❀★❀★❀", Color::Rgb(200, 100, 220)),
+        ("☆♪☆♪☆", Color::Cyan),
+        ("✿✦✿✦✿", Color::Rgb(255, 105, 180)),
+        ("♡ ♡ ♡", Color::Rgb(255, 180, 210)),
+        ("★❀★❀★", Color::Rgb(180, 80, 220)),
+        ("♪☆♪☆♪", Color::Rgb(100, 220, 220)),
+    ];
+    let lines: Vec<Line> = (0..area.height)
+        .map(|i| {
+            let (text, color) = rows[i as usize % rows.len()];
+            Line::styled(text, Style::default().fg(color))
+        })
+        .collect();
+    Paragraph::new(lines).render(area, frame.buffer_mut());
 }
 
 /// Handles keyboard events and updates the application state.
@@ -586,11 +643,12 @@ async fn handle_event(
                 app.page_cache.clear();
                 app.proto_cache.clear();
                 app.fetched.clear();
+                app.failed.clear();
                 app.page_left = None;
                 app.page_right = None;
 
                 let img_data = img_data.clone();
-                load_spread(app, &client.http_client, &img_data, page_tx, proto_tx).await;
+                load_spread(app, client.http_client(), &img_data, page_tx, proto_tx).await;
                 app.screen = AppScreen::Reading;
             }
             _ => {}
@@ -603,7 +661,7 @@ async fn handle_event(
                 if let Some(img_data) = app.image_data.clone() {
                     if app.current_page + 2 < img_data.chapter.data.len() {
                         app.current_page += 2;
-                        load_spread(app, &client.http_client, &img_data, page_tx, proto_tx).await;
+                        load_spread(app, client.http_client(), &img_data, page_tx, proto_tx).await;
                     }
                 }
             }
@@ -611,7 +669,7 @@ async fn handle_event(
                 if let Some(img_data) = app.image_data.clone() {
                     if app.current_page >= 2 {
                         app.current_page -= 2;
-                        load_spread(app, &client.http_client, &img_data, page_tx, proto_tx).await;
+                        load_spread(app, client.http_client(), &img_data, page_tx, proto_tx).await;
                     }
                 }
             }
@@ -668,6 +726,7 @@ async fn load_spread(
             build_url(img_data, current),
             current,
             page_tx.clone(),
+            app.fetch_semaphore.clone(),
         );
     }
 
@@ -697,6 +756,7 @@ async fn load_spread(
                 build_url(img_data, next),
                 next,
                 page_tx.clone(),
+                app.fetch_semaphore.clone(),
             );
         }
     } else {
@@ -708,7 +768,7 @@ async fn load_spread(
     // so we never duplicate work across multiple navigations.
     for i in 0..img_data.chapter.data.len() {
         if !app.page_cache.contains_key(&i) && app.fetched.insert(i) {
-            spawn_fetch(http.clone(), build_url(img_data, i), i, page_tx.clone());
+            spawn_fetch(http.clone(), build_url(img_data, i), i, page_tx.clone(), app.fetch_semaphore.clone());
         }
     }
 }
@@ -720,27 +780,55 @@ fn build_url(img_data: &ImageDataResponse, idx: usize) -> String {
     )
 }
 
+/// Maximum bytes accepted for a single image download (50 MB).
+const MAX_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
+
 /// Downloads an image in a background async task.
 ///
-/// Image decoding is CPU-bound and is performed in a dedicated blocking thread
-/// via `tokio::task::spawn_blocking` to avoid stalling the async reactor. Redundant
-/// decodes are avoided by checking `app.page_cache` before calling this.
-fn spawn_fetch(http: reqwest::Client, url: String, idx: usize, page_tx: mpsc::Sender<PageMsg>) {
+/// Acquires a permit from `sem` before sending the request so at most
+/// `MAX_CONCURRENT_FETCHES` downloads run simultaneously, preventing CDN
+/// rate-limiting. Image decoding is CPU-bound and runs on a blocking thread
+/// via `tokio::task::spawn_blocking`. Sends `None` on any failure so the UI
+/// can display an error instead of a perpetual "Loading…" spinner.
+fn spawn_fetch(
+    http: reqwest::Client,
+    url: String,
+    idx: usize,
+    page_tx: mpsc::Sender<PageMsg>,
+    sem: Arc<Semaphore>,
+) {
     tokio::spawn(async move {
+        // Hold permit for the lifetime of this download to cap concurrency.
+        let Ok(_permit) = sem.acquire_owned().await else {
+            let _ = page_tx.send((idx, None)).await;
+            return;
+        };
         let Ok(resp) = http.get(&url).send().await else {
+            let _ = page_tx.send((idx, None)).await;
             return;
         };
+        // Reject oversized responses before reading the body.
+        if resp.content_length().map_or(false, |len| len > MAX_IMAGE_BYTES) {
+            let _ = page_tx.send((idx, None)).await;
+            return;
+        }
         let Ok(bytes) = resp.bytes().await else {
+            let _ = page_tx.send((idx, None)).await;
             return;
         };
-        // Decode on a blocking thread — image::load_from_memory is CPU-intensive
+        if bytes.len() as u64 > MAX_IMAGE_BYTES {
+            let _ = page_tx.send((idx, None)).await;
+            return;
+        }
+        // Decode on a blocking thread — image::load_from_memory is CPU-intensive.
         let bytes = bytes.to_vec();
         let Ok(Ok(img)) =
             tokio::task::spawn_blocking(move || image::load_from_memory(&bytes)).await
         else {
+            let _ = page_tx.send((idx, None)).await;
             return;
         };
-        let _ = page_tx.send((idx, img)).await;
+        let _ = page_tx.send((idx, Some(img))).await;
     });
 }
 

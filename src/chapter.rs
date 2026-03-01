@@ -30,7 +30,7 @@ impl<'mangaclient> ChapterClient<'mangaclient> {
     ) -> Result<Vec<ChapterData>> {
         let resp: reqwest::Response = self
             .client
-            .http_client
+            .http_client()
             .get(&format!("{}/manga/{}/feed", self.client.base_url, manga_id))
             .query(&[
                 ("translatedLanguage[]", language.unwrap_or("en")),
@@ -68,7 +68,7 @@ pub struct ChapterResponse {
     pub total: usize,
 }
 /// Data representation of a single chapter.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ChapterData {
     /// Unique identifier for the chapter.
     pub id: String,

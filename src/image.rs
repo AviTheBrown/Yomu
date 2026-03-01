@@ -1,7 +1,10 @@
 use crate::client::MangaDexClient;
-use crate::error::Result;
+use crate::error::{Result, YomuError};
 use image::DynamicImage;
 use serde::Deserialize;
+
+/// Maximum bytes accepted for a single image download (50 MB).
+const MAX_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// A client for fetching image-related data from MangaDex @ Home servers.
 pub struct ImageClient<'mangaclient> {
@@ -25,8 +28,23 @@ impl<'mangaclient> ImageClient<'mangaclient> {
     /// ```
     pub async fn fetch_image_data(&self, chapter_id: &str) -> Result<ImageDataResponse> {
         let fetch_url = format!("{}/at-home/server/{}", self.client.base_url, chapter_id);
-        let resp: reqwest::Response = self.client.http_client.get(fetch_url).send().await?;
+        let resp: reqwest::Response = self
+            .client
+            .http_client()
+            .get(fetch_url)
+            .send()
+            .await?
+            .error_for_status()?;
         let resp_json = resp.json::<ImageDataResponse>().await?;
+        if !resp_json.base_url.starts_with("https://") {
+            return Err(YomuError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "unsafe base_url from API: expected https://, got \"{}\"",
+                    resp_json.base_url
+                ),
+            )));
+        }
         Ok(resp_json)
     }
     /// Downloads an image from the given URL and returns the raw bytes.
@@ -44,13 +62,25 @@ impl<'mangaclient> ImageClient<'mangaclient> {
     /// # }
     /// ```
     pub async fn download_image_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        let resp = self.client.http_client.get(url).send().await?;
+        let resp = self.client.http_client().get(url).send().await?;
+        if resp.content_length().map_or(false, |len| len > MAX_IMAGE_BYTES) {
+            return Err(YomuError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "image response exceeds size limit",
+            )));
+        }
         let bytes = resp.bytes().await?;
+        if bytes.len() as u64 > MAX_IMAGE_BYTES {
+            return Err(YomuError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "image response exceeds size limit",
+            )));
+        }
         Ok(bytes.into())
     }
     /// Downloads an image from the given URL and decodes it into a `DynamicImage`.
     pub async fn download_image(&self, url: &str) -> Result<DynamicImage> {
-        let bytes = self.download_image_bytes(url).await?;
+        let bytes: Vec<u8> = self.download_image_bytes(url).await?;
         let img = image::load_from_memory(&bytes)?;
         Ok(img)
     }
@@ -84,6 +114,7 @@ mod test {
     use crate::client::MangaDexClient;
 
     #[tokio::test]
+    #[ignore = "requires live network access"]
     async fn test_img_download() {
         let client = MangaDexClient::new().unwrap();
         let img_client = client.image_client();
