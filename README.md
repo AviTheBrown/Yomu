@@ -1,7 +1,8 @@
 # yomu (読む)
 
 <div align="center">
-  <img src="assets/mascot.png" width="300" alt="Yomu Mascot">
+  <p><i>Image was AI generated</i></p>
+  <img src="assets/mascot.png" width="400" alt="Yomu Mascot">
   <br>
   <br>
   <a href="https://github.com/AviTheBrown/Yomu/blob/main/LICENSE"><img src="https://img.shields.io/github/license/AviTheBrown/Yomu" alt="License"></a>
@@ -30,17 +31,16 @@ Yomu is a TUI manga reader written in Rust. It connects directly to [MangaDex](h
 
 ---
 
-## Overview
-
-Yomu is a lightweight, high-performance terminal manga reader designed for efficiency and immersion. Built with Rust and leveraging modern TUI paradigms, Yomu provides a minimal but powerful interface for accessing the vast MangaDex library without ever leaving your terminal environment.
-
 ## Features
 
-- **Blazing-Fast Async Engine**: Powered by `tokio` for concurrent image fetching and background prefetching.
-- **Native Graphics Protocol**: Automatic detection for Kitty, Sixel, and high-fidelity halfblock rendering.
-- **Zero-Latency Navigation**: In-memory caching for decoded spreads ensures instant back-and-forth paging.
-- **Smart Resource Management**: Bounded concurrency limiting and LRU-style cache eviction prevent rate-limiting and memory bloat.
-- **Kawaii Aesthetics**: Vibrant anime-themed UI with custom ASCII art headers and decorative閱讀 decoration strips.
+- **Full MangaDex library** — search any title and read any chapter available on MangaDex
+- **Two-page spread layout** — pages are displayed side-by-side, right-to-left, just like a physical volume
+- **Native terminal graphics** — supports Kitty, Sixel, and halfblocks protocols via [ratatui-image](https://github.com/benjajaja/ratatui-image), with automatic detection and fallback
+- **Async prefetching** — all pages in a chapter are downloaded concurrently in the background while you read
+- **Smart image cache** — decoded pages are held in memory for instant navigation, with automatic eviction of distant pages (cap: 20 pages)
+- **Bounded concurrency** — at most 8 simultaneous CDN downloads so you never hit MangaDex rate limits
+- **Real-time loading gauge** — a progress bar shows how much of the chapter has been cached
+- **ASCII art converter** — a built-in library function for converting images to ASCII art
 
 ---
 
@@ -74,24 +74,25 @@ Yomu is a lightweight, high-performance terminal manga reader designed for effic
 
 | Requirement | Notes |
 |---|---|
-| **Rust** | 1.85+ (edition 2024 recommended) |
-| **Terminal** | Kitty graphics, Sixel, or halfblocks support |
-| **Network** | Secure HTTPS access to MangaDex API and CDN |
+| **Rust** | 1.85+ (edition 2024) |
+| **Terminal** | Kitty, WezTerm, iTerm2, or any terminal with Sixel/halfblocks support |
+| **Network** | Live internet access to the MangaDex API and CDN |
 
-### Protocol Support
+### Recommended terminals
 
-| Terminal | Optimal Protocol | Rating |
+| Terminal | Protocol | Quality |
 |---|---|---|
-| [Kitty](https://sw.kovidgoyal.net/kitty/) | Kitty graphics | ★★★ |
-| [WezTerm](https://wezfurlong.org/wezterm/) | Sixel | ★★★ |
-| [iTerm2](https://iterm2.com/) | Sixel | ★★★ |
-| Generic TTY | Halfblocks | ★★☆ |
+| [Kitty](https://sw.kovidgoyal.net/kitty/) | Kitty graphics | Best |
+| [WezTerm](https://wezfurlong.org/wezterm/) | Sixel | Excellent |
+| [iTerm2](https://iterm2.com/) | Sixel | Excellent |
+| [foot](https://codeberg.org/dnkl/foot) | Sixel | Good |
+| Any other terminal | Halfblocks | Functional |
 
 ---
 
 ## Installation
 
-### Building from Source
+### From source
 
 ```bash
 git clone https://github.com/AviTheBrown/Yomu
@@ -99,16 +100,12 @@ cd yomu
 cargo build --release
 ```
 
-### Path Configuration
+The binary will be at `target/release/yomu`.
 
-To enable global access to `yomu`, you can install it via cargo or manually move the binary:
+### Run directly
 
 ```bash
-# Recommended
-cargo install --path .
-
-# Manual
-mv target/release/yomu /usr/local/bin/
+cargo run --release
 ```
 
 ---
